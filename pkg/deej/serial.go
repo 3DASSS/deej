@@ -5,9 +5,11 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"go.bug.st/serial"
@@ -21,9 +23,9 @@ import (
 
 // SerialIO provides a deej-aware abstraction layer to managing serial I/O
 type SerialIO struct {
-	comPortConfig  string
-	comPortToUse   string
-	baudRateConfig int
+	comPortToUse string
+
+	lastConnectionInfo atomic.Pointer[ConnectionInfo]
 
 	deej   *Deej
 	logger *zap.SugaredLogger
@@ -32,7 +34,9 @@ type SerialIO struct {
 	wg          sync.WaitGroup
 	port        serial.Port
 	mode        serial.Mode
+	connected   atomic.Bool
 
+	stateLock           sync.Mutex
 	lastKnownNumSliders int
 	currentSliderValues []int
 
@@ -81,16 +85,14 @@ func (sio *SerialIO) connect() error {
 		return errors.New("serial: connection already active")
 	}
 
-	// sio.stopped = false
+	config := sio.deej.config.Values()
+	sio.lastConnectionInfo.Store(&config.ConnectionInfo)
 
-	sio.comPortConfig = sio.deej.config.ConnectionInfo.COMPort
-	sio.baudRateConfig = sio.deej.config.ConnectionInfo.BaudRate
+	sio.comPortToUse = config.ConnectionInfo.COMPort
 
-	sio.comPortToUse = sio.comPortConfig
+	allowedVIDPID := config.AutoSearchVIDPID
 
-	allowedVIDPID := sio.deej.config.AutoSearchVIDPID
-
-	if sio.comPortConfig == "auto" {
+	if config.ConnectionInfo.COMPort == "auto" {
 		sio.logger.Debugw("Trying to autodetect serial port")
 
 		ports, err := enumerator.GetDetailedPortsList()
@@ -128,7 +130,7 @@ func (sio *SerialIO) connect() error {
 	}
 
 	sio.mode = serial.Mode{
-		BaudRate: sio.deej.config.ConnectionInfo.BaudRate,
+		BaudRate: config.ConnectionInfo.BaudRate,
 		DataBits: 8,
 		StopBits: serial.OneStopBit,
 	}
@@ -162,12 +164,20 @@ func (sio *SerialIO) connect() error {
 	}
 
 	sio.port = port
+	sio.connected.Store(true)
 
 	return nil
 }
 
 func (sio *SerialIO) GetState() bool {
-	return sio.port != nil
+	return sio.connected.Load()
+}
+
+func (sio *SerialIO) CurrentSliderValues() []int {
+	sio.stateLock.Lock()
+	defer sio.stateLock.Unlock()
+
+	return slices.Clone(sio.currentSliderValues)
 }
 
 // Start attempts to connect to our arduino chip
@@ -220,11 +230,16 @@ func (sio *SerialIO) setupOnConfigReload() {
 		for {
 			<-configReloadedChannel
 
+			// reset the slider count so the next line re-emits all values
+			sio.stateLock.Lock()
 			sio.lastKnownNumSliders = 0
+			sio.stateLock.Unlock()
+
+			config := sio.deej.config.Values()
+			lastConnectionInfo := sio.lastConnectionInfo.Load()
 
 			// if connection params have changed, attempt to stop and start the connection
-			if sio.deej.config.ConnectionInfo.COMPort != sio.comPortConfig ||
-				sio.deej.config.ConnectionInfo.BaudRate != sio.baudRateConfig {
+			if lastConnectionInfo == nil || config.ConnectionInfo != *lastConnectionInfo {
 
 				sio.logger.Info("Detected change in connection parameters, attempting to renew connection")
 				sio.Stop()
@@ -242,10 +257,11 @@ func (sio *SerialIO) setupOnConfigReload() {
 func (sio *SerialIO) managerLoop() {
 	defer sio.wg.Done()
 
+	config := sio.deej.config.Values()
 	sio.logger.Infow("Trying serial connection",
-		"port", sio.deej.config.ConnectionInfo.COMPort,
-		"vid", fmt.Sprintf("%X", sio.deej.config.AutoSearchVIDPID.VID),
-		"pid", fmt.Sprintf("%X", sio.deej.config.AutoSearchVIDPID.PID),
+		"port", config.ConnectionInfo.COMPort,
+		"vid", fmt.Sprintf("%X", config.AutoSearchVIDPID.VID),
+		"pid", fmt.Sprintf("%X", config.AutoSearchVIDPID.PID),
 	)
 
 	for {
@@ -353,6 +369,7 @@ func (sio *SerialIO) closePort() error {
 
 	sio.logger.Info("Serial connection closed")
 	sio.port = nil
+	sio.connected.Store(false)
 	sio.sendStateChangeEvent(false)
 	return nil
 }
@@ -371,6 +388,17 @@ func (sio *SerialIO) handleLine(logger *zap.SugaredLogger, line string) {
 	// split on pipe (|), this gives a slice of numerical strings between "0" and "1023"
 	splitLine := strings.Split(line, "|")
 	numSliders := len(splitLine)
+
+	// turns out the first line could come out dirty sometimes (i.e. "4558|925|41|643|220")
+	// so let's check the first number for correctness just in case
+	if firstNumber, _ := strconv.Atoi(splitLine[0]); firstNumber > 1023 {
+		logger.Debugw("Got malformed line from serial, ignoring", "line", line)
+		return
+	}
+
+	config := sio.deej.config.Values()
+
+	sio.stateLock.Lock()
 
 	// update our slider count, if needed - this will send slider move events for all
 	if numSliders != sio.lastKnownNumSliders {
@@ -391,13 +419,6 @@ func (sio *SerialIO) handleLine(logger *zap.SugaredLogger, line string) {
 		// convert string values to integers ("1023" -> 1023)
 		number, _ := strconv.Atoi(stringValue)
 
-		// turns out the first line could come out dirty sometimes (i.e. "4558|925|41|643|220")
-		// so let's check the first number for correctness just in case
-		if sliderIdx == 0 && number > 1023 {
-			logger.Debugw("Got malformed line from serial, ignoring", "line", line)
-			return
-		}
-
 		// map the value from raw to a "dirty" float between 0 and 1 (e.g. 0.15451...)
 		dirtyFloat := float32(number) / 1023.0
 
@@ -405,12 +426,12 @@ func (sio *SerialIO) handleLine(logger *zap.SugaredLogger, line string) {
 		normalizedScalar := util.NormalizeScalar(dirtyFloat)
 
 		// if sliders are inverted, take the complement of 1.0
-		if sio.deej.config.InvertSliders {
+		if config.InvertSliders {
 			normalizedScalar = 1 - normalizedScalar
 		}
 
 		// check if it changes the desired state (could just be a jumpy raw slider value)
-		if util.SignificantlyDifferent(sio.currentSliderValues[sliderIdx], number, sio.deej.config.NoiseReductionLevel) {
+		if util.SignificantlyDifferent(sio.currentSliderValues[sliderIdx], number, config.NoiseReductionLevel) {
 
 			// if it does, update the saved value and create a move event
 			sio.currentSliderValues[sliderIdx] = number
@@ -425,6 +446,9 @@ func (sio *SerialIO) handleLine(logger *zap.SugaredLogger, line string) {
 			}
 		}
 	}
+
+	// release the lock before delivering events, since sends can block on consumers
+	sio.stateLock.Unlock()
 
 	// deliver move events if there are any, towards all potential consumers
 	if len(moveEvents) > 0 {

@@ -131,7 +131,7 @@ func (o *OBSClient) connect() error {
 		return fmt.Errorf("already connected")
 	}
 
-	cfg := o.deej.config.OBSConfig
+	cfg := o.deej.config.Values().OBSConfig
 	address := fmt.Sprintf("%s:%d", cfg.Host, cfg.Port)
 
 	o.logger.Debugw("Attempting OBS connection", "address", address)
@@ -175,14 +175,15 @@ func (o *OBSClient) managerLoop() {
 	o.wg.Add(1)
 	defer o.wg.Done()
 
+	obsConfig := o.deej.config.Values().OBSConfig
 	o.logger.Infow("Trying OBS connection",
-		"host", o.deej.config.OBSConfig.Host,
-		"port", o.deej.config.OBSConfig.Port,
+		"host", obsConfig.Host,
+		"port", obsConfig.Port,
 	)
 
 	for {
 		// check if OBS is enabled
-		if !o.deej.config.OBSConfig.Enabled {
+		if !o.deej.config.Values().OBSConfig.Enabled {
 			select {
 			case <-o.stopChannel:
 				o.logger.Debug("managerLoop: stop signal")
@@ -223,7 +224,7 @@ func (o *OBSClient) managerLoop() {
 		}
 
 		// re-check if OBS was disabled while connecting
-		if !o.deej.config.OBSConfig.Enabled {
+		if !o.deej.config.Values().OBSConfig.Enabled {
 			o.logger.Debug("OBS disabled while connecting, disconnecting")
 			o.disconnect()
 			continue
@@ -291,11 +292,16 @@ func (o *OBSClient) setupOnConfigReload() {
 				continue
 			}
 
-			cfg := o.deej.config.OBSConfig
+			cfg := o.deej.config.Values().OBSConfig
 
-			if cfg.Host != o.hostConfig ||
-				cfg.Port != o.portConfig ||
-				cfg.Password != o.passwordConfig ||
+			// the connection-time params are written by connect under the lock
+			o.lock.Lock()
+			host, port, password := o.hostConfig, o.portConfig, o.passwordConfig
+			o.lock.Unlock()
+
+			if cfg.Host != host ||
+				cfg.Port != port ||
+				cfg.Password != password ||
 				!cfg.Enabled {
 
 				o.logger.Debug("OBS config changed, triggering reconnect")

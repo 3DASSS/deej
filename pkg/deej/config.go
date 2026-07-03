@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/fsnotify/fsnotify"
@@ -21,15 +22,27 @@ type VIDPID struct {
 	PID uint64
 }
 
-// CanonicalConfig provides application-wide access to configuration fields,
-// as well as loading/file watching logic for deej's configuration file
-type CanonicalConfig struct {
+// ConnectionInfo describes the serial connection parameters
+type ConnectionInfo struct {
+	COMPort  string
+	BaudRate int
+}
+
+// OBSConfig describes the OBS websocket connection parameters
+type OBSConfig struct {
+	Enabled  bool
+	Host     string
+	Port     int
+	Password string
+}
+
+// ConfigValues holds a single immutable generation of deej's configuration.
+// A fresh instance is published atomically on every (re)load, so concurrent
+// readers must grab a snapshot with Values and must not mutate it
+type ConfigValues struct {
 	SliderMapping *sliderMap
 
-	ConnectionInfo struct {
-		COMPort  string
-		BaudRate int
-	}
+	ConnectionInfo ConnectionInfo
 
 	InvertSliders bool
 
@@ -39,16 +52,18 @@ type CanonicalConfig struct {
 
 	AutoSearchVIDPID VIDPID
 
-	OBSConfig struct {
-		Enabled  bool
-		Host     string
-		Port     int
-		Password string
-	}
+	OBSConfig OBSConfig
+}
+
+// CanonicalConfig provides application-wide access to configuration fields,
+// as well as loading/file watching logic for deej's configuration file
+type CanonicalConfig struct {
+	current atomic.Pointer[ConfigValues]
 
 	logger             *zap.SugaredLogger
 	notifier           notify.Notifier
 	stopWatcherChannel chan bool
+	watcherStopped     atomic.Bool
 
 	reloadConsumers []chan bool
 
@@ -56,6 +71,13 @@ type CanonicalConfig struct {
 	internalConfig *viper.Viper
 
 	configPath string
+}
+
+// Values returns the current immutable snapshot of the configuration.
+// Callers that read multiple fields should grab one snapshot and use it
+// throughout, so all values belong to the same config generation
+func (cc *CanonicalConfig) Values() *ConfigValues {
+	return cc.current.Load()
 }
 
 const (
@@ -236,11 +258,12 @@ func (cc *CanonicalConfig) Load(localizer *i18n.Localizer) error {
 		return fmt.Errorf("populate config fields: %w", err)
 	}
 
+	values := cc.Values()
 	cc.logger.Info("Loaded config successfully")
 	cc.logger.Infow("Config values",
-		"sliderMapping", cc.SliderMapping,
-		"connectionInfo", cc.ConnectionInfo,
-		"invertSliders", cc.InvertSliders)
+		"sliderMapping", values.SliderMapping,
+		"connectionInfo", values.ConnectionInfo,
+		"invertSliders", values.InvertSliders)
 
 	return nil
 }
@@ -265,9 +288,16 @@ func (cc *CanonicalConfig) WatchConfigFileChanges(localizer *i18n.Localizer) {
 
 	lastAttemptedReload := time.Now()
 
-	// establish watch using viper as opposed to doing it ourselves, though our internal cooldown is still required
-	cc.userConfig.WatchConfig()
+	// establish watch using viper as opposed to doing it ourselves, though our internal cooldown is still required.
+	// the callback must be registered before WatchConfig starts viper's watch
+	// goroutine, since viper stores it in an unsynchronized field
 	cc.userConfig.OnConfigChange(func(event fsnotify.Event) {
+
+		// viper offers no way to unregister the callback safely, so once we're
+		// stopped just ignore any further events
+		if cc.watcherStopped.Load() {
+			return
+		}
 
 		// when we get a write event...
 		if event.Op&fsnotify.Write == fsnotify.Write {
@@ -310,55 +340,60 @@ func (cc *CanonicalConfig) WatchConfigFileChanges(localizer *i18n.Localizer) {
 			}
 		}
 	})
+	cc.userConfig.WatchConfig()
 
 	// wait till they stop us
 	<-cc.stopWatcherChannel
 	cc.logger.Debug("Stopping user config file watcher")
-	cc.userConfig.OnConfigChange(nil)
 }
 
 // StopWatchingConfigFile signals our filesystem watcher to stop
 func (cc *CanonicalConfig) StopWatchingConfigFile() {
+	cc.watcherStopped.Store(true)
 	cc.stopWatcherChannel <- true
 }
 
 func (cc *CanonicalConfig) populateFromVipers() error {
 
+	values := &ConfigValues{}
+
 	// merge the slider mappings from the user and internal configs
-	cc.SliderMapping = sliderMapFromConfigs(
+	values.SliderMapping = sliderMapFromConfigs(
 		cc.userConfig.GetStringMapStringSlice(configKeySliderMapping),
 		cc.internalConfig.GetStringMapStringSlice(configKeySliderMapping),
 	)
 
 	// get the rest of the config fields - viper saves us a lot of effort here
-	cc.ConnectionInfo.COMPort = cc.userConfig.GetString(configKeyCOMPort)
+	values.ConnectionInfo.COMPort = cc.userConfig.GetString(configKeyCOMPort)
 
-	cc.ConnectionInfo.BaudRate = cc.userConfig.GetInt(configKeyBaudRate)
-	if cc.ConnectionInfo.BaudRate <= 0 {
+	values.ConnectionInfo.BaudRate = cc.userConfig.GetInt(configKeyBaudRate)
+	if values.ConnectionInfo.BaudRate <= 0 {
 		cc.logger.Warnw("Invalid baud rate specified, using default value",
 			"key", configKeyBaudRate,
-			"invalidValue", cc.ConnectionInfo.BaudRate,
+			"invalidValue", values.ConnectionInfo.BaudRate,
 			"defaultValue", defaultBaudRate)
 
-		cc.ConnectionInfo.BaudRate = defaultBaudRate
+		values.ConnectionInfo.BaudRate = defaultBaudRate
 	}
 
-	cc.InvertSliders = cc.userConfig.GetBool(configKeyInvertSliders)
-	cc.NoiseReductionLevel = cc.userConfig.GetString(configKeyNoiseReductionLevel)
-	cc.Language = cc.userConfig.GetString(configKeyLanguage)
+	values.InvertSliders = cc.userConfig.GetBool(configKeyInvertSliders)
+	values.NoiseReductionLevel = cc.userConfig.GetString(configKeyNoiseReductionLevel)
+	values.Language = cc.userConfig.GetString(configKeyLanguage)
 
 	userConfigVID := cc.userConfig.GetUint64(configKeyComVID)
 	userConfigPID := cc.userConfig.GetUint64(configKeyComPID)
 
-	cc.AutoSearchVIDPID = VIDPID{VID: userConfigVID, PID: userConfigPID}
+	values.AutoSearchVIDPID = VIDPID{VID: userConfigVID, PID: userConfigPID}
 
-	cc.OBSConfig.Enabled = cc.userConfig.GetBool(configKeyOBSEnabled)
-	cc.OBSConfig.Host = cc.userConfig.GetString(configKeyOBSHost)
-	cc.OBSConfig.Port = cc.userConfig.GetInt(configKeyOBSPort)
-	cc.OBSConfig.Password = cc.userConfig.GetString(configKeyOBSPassword)
+	values.OBSConfig.Enabled = cc.userConfig.GetBool(configKeyOBSEnabled)
+	values.OBSConfig.Host = cc.userConfig.GetString(configKeyOBSHost)
+	values.OBSConfig.Port = cc.userConfig.GetInt(configKeyOBSPort)
+	values.OBSConfig.Password = cc.userConfig.GetString(configKeyOBSPassword)
 
-	cc.logger.Debugw("AutoSearchVIDPID", "val", cc.AutoSearchVIDPID)
-	cc.logger.Debugw("OBSConfig", "enabled", cc.OBSConfig.Enabled, "host", cc.OBSConfig.Host, "port", cc.OBSConfig.Port)
+	cc.current.Store(values)
+
+	cc.logger.Debugw("AutoSearchVIDPID", "val", values.AutoSearchVIDPID)
+	cc.logger.Debugw("OBSConfig", "enabled", values.OBSConfig.Enabled, "host", values.OBSConfig.Host, "port", values.OBSConfig.Port)
 	cc.logger.Debugw("Populated config fields from vipers")
 
 	return nil

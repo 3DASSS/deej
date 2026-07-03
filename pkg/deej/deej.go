@@ -159,7 +159,7 @@ func (d *Deej) GetSystemLocalizer() (*i18n.Localizer, error) {
 }
 
 func (d *Deej) updateLocalizer() error {
-	lang := d.config.Language
+	lang := d.config.Values().Language
 	if lang == "auto" {
 		var err error
 		lang, err = locale.GetLanguage()

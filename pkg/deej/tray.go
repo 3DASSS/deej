@@ -105,8 +105,9 @@ func getStatusItemTitle(d *Deej) string {
 }
 
 func getValuesString(d *Deej) string {
-	strs := make([]string, len(d.serial.currentSliderValues))
-	for i, num := range d.serial.currentSliderValues {
+	values := d.serial.CurrentSliderValues()
+	strs := make([]string, len(values))
+	for i, num := range values {
 		strs[i] = strconv.FormatFloat((float64(num)/1023.0)*100, 'f', 0, 32)
 	}
 	return strings.Join(strs, " | ")
