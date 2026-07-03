@@ -56,11 +56,12 @@ func newWCASession(
 		s.humanReadableDesc = "system sounds"
 	} else {
 
-		// find our session's process name
+		// find our session's process name.
+		// on any error return the caller keeps ownership of the COM interfaces
+		// and is responsible for releasing them, don't release here
 		process, err := ps.FindProcess(int(pid))
 		if err != nil {
 			logger.Warnw("Failed to find process name by ID", "pid", pid, "error", err)
-			defer s.Release()
 
 			return nil, fmt.Errorf("find process name by pid: %w", err)
 		}
