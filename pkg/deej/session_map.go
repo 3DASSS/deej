@@ -78,6 +78,7 @@ func (m *sessionMap) notifySessionCountChange() {
 
 func (m *sessionMap) initialize() error {
 	m.setupOnSliderMove()
+	m.setupOnConfigReload()
 
 	// the handler must be registered before the finder starts discovering
 	// sessions, otherwise startup enumeration events would be lost
@@ -108,6 +109,38 @@ func (m *sessionMap) setupOnSliderMove() {
 	}()
 }
 
+// setupOnConfigReload recomputes the unmapped session list whenever the config
+// is reloaded, since edits to the slider mapping change which sessions count
+// as unmapped
+func (m *sessionMap) setupOnConfigReload() {
+	configReloadedChannel := m.deej.config.SubscribeToChanges()
+
+	go func() {
+		for range configReloadedChannel {
+			m.refreshUnmappedSessions()
+		}
+	}()
+}
+
+// refreshUnmappedSessions rebuilds the unmapped session list from the current
+// session map and slider mapping
+func (m *sessionMap) refreshUnmappedSessions() {
+	m.lock.Lock()
+	defer m.lock.Unlock()
+
+	m.unmappedSessions = nil
+
+	for _, sessions := range m.m {
+		for _, session := range sessions {
+			if !m.sessionMapped(session) {
+				m.unmappedSessions = append(m.unmappedSessions, session)
+			}
+		}
+	}
+
+	m.logger.Debugw("Refreshed unmapped sessions after config reload", "count", len(m.unmappedSessions))
+}
+
 // handleSessionEvent is called synchronously by the session finder,
 // potentially from multiple goroutines
 func (m *sessionMap) handleSessionEvent(event SessionEvent) {
@@ -122,16 +155,19 @@ func (m *sessionMap) handleSessionEvent(event SessionEvent) {
 func (m *sessionMap) handleSessionAdded(event SessionEvent) {
 	m.logger.Debugw("Session added event received", "session", event.Session)
 
-	// Add to the main map
-	m.add(event.Session)
+	// add to the map and track as unmapped in one locked block, so a
+	// concurrent refreshUnmappedSessions can't observe the session in the map
+	// and track it a second time
+	m.lock.Lock()
 
-	// Track as unmapped if applicable
+	m.addLocked(event.Session)
+
 	if !m.sessionMapped(event.Session) {
 		m.logger.Debugw("Tracking unmapped session from event", "session", event.Session)
-		m.lock.Lock()
 		m.unmappedSessions = append(m.unmappedSessions, event.Session)
-		m.lock.Unlock()
 	}
+
+	m.lock.Unlock()
 
 	m.notifySessionCountChange()
 }
@@ -357,10 +393,14 @@ func (m *sessionMap) applyTargetTransform(specialTargetName string) []string {
 
 	// get currently unmapped sessions
 	case specialTargetAllUnmapped:
+		// the unmapped session list is mutated by the session event and config
+		// reload handlers, so it must be read under the lock
+		m.lock.Lock()
 		targetKeys := make([]string, len(m.unmappedSessions))
 		for sessionIdx, session := range m.unmappedSessions {
 			targetKeys[sessionIdx] = session.Key()
 		}
+		m.lock.Unlock()
 
 		return targetKeys
 	}
@@ -372,6 +412,11 @@ func (m *sessionMap) add(value Session) {
 	m.lock.Lock()
 	defer m.lock.Unlock()
 
+	m.addLocked(value)
+}
+
+// addLocked adds a session to the map. m.lock must be held
+func (m *sessionMap) addLocked(value Session) {
 	key := value.Key()
 
 	existing, ok := m.m[key]
