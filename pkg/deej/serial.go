@@ -29,7 +29,6 @@ type SerialIO struct {
 	logger *zap.SugaredLogger
 
 	stopChannel chan struct{}
-	errChannel  chan error
 	wg          sync.WaitGroup
 	port        serial.Port
 	mode        serial.Mode
@@ -63,7 +62,6 @@ func NewSerialIO(deej *Deej, logger *zap.SugaredLogger) (*SerialIO, error) {
 		deej:                 deej,
 		logger:               logger,
 		port:                 nil,
-		errChannel:           make(chan error, 1),
 		sliderMoveConsumers:  []chan SliderMoveEvent{},
 		stateChangeConsumers: []chan bool{},
 	}
@@ -277,10 +275,11 @@ func (sio *SerialIO) managerLoop() {
 		})
 		sio.deej.notifier.Notify(connectedTitle, connectedDescription)
 
-		go sio.readLoop(namedLogger)
+		errChannel := make(chan error, 1)
+		go sio.readLoop(namedLogger, errChannel)
 
 		select {
-		case err := <-sio.errChannel:
+		case err := <-errChannel:
 			sio.logger.Warnw("Read line error", "err", err)
 			sio.logger.Warn("Closing serial port")
 
@@ -313,7 +312,7 @@ func (sio *SerialIO) managerLoop() {
 	}
 }
 
-func (sio *SerialIO) readLoop(logger *zap.SugaredLogger) {
+func (sio *SerialIO) readLoop(logger *zap.SugaredLogger, errChannel chan<- error) {
 	sio.wg.Add(1)
 	defer sio.wg.Done()
 
@@ -321,7 +320,7 @@ func (sio *SerialIO) readLoop(logger *zap.SugaredLogger) {
 	for {
 		line, err := reader.ReadString('\n')
 		if err != nil {
-			sio.errChannel <- fmt.Errorf("read error: %w", err)
+			errChannel <- fmt.Errorf("read error: %w", err)
 			return
 		}
 
