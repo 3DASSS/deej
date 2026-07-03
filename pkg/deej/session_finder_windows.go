@@ -26,9 +26,14 @@ type wcaSessionFinder struct {
 	eventCtx *ole.GUID // needed for some session actions to successfully notify other audio consumers
 
 	// needed for device change notifications
-	mmDeviceEnumerator      *wca.IMMDeviceEnumerator
-	mmNotificationClient    *win.IMMNotificationClient
-	lastDefaultDeviceChange time.Time
+	mmDeviceEnumerator   *wca.IMMDeviceEnumerator
+	mmNotificationClient *win.IMMNotificationClient
+
+	// guards the per-flow debounce timestamps; the default device changed
+	// callback can be invoked concurrently from multiple COM threads
+	debounceMu              sync.Mutex
+	lastDefaultOutputChange time.Time
+	lastDefaultInputChange  time.Time
 
 	// workChan receives functions from IMMNotificationClient callbacks to be executed
 	// on the worker goroutine (which owns the COM apartment)
@@ -683,24 +688,44 @@ func (sf *wcaSessionFinder) Release() error {
 func (sf *wcaSessionFinder) defaultDeviceChangedCallback(
 	flow wca.EDataFlow, role wca.ERole, pwstrDeviceID string,
 ) error {
+	refreshOutput := flow == wca.ERender || flow == wca.EAll
+	refreshInput := flow == wca.ECapture || flow == wca.EAll
+
+	// debounce per flow: the extraneous per-role calls this filters out are
+	// always for the same flow, while an input default change right after an
+	// output default change (e.g. unplugging a USB headset) is a real change
+	// that must not be swallowed
 	now := time.Now()
 
-	if sf.lastDefaultDeviceChange.Add(minDefaultDeviceChangeThreshold).After(now) {
+	sf.debounceMu.Lock()
+	if refreshOutput {
+		if sf.lastDefaultOutputChange.Add(minDefaultDeviceChangeThreshold).After(now) {
+			refreshOutput = false
+		} else {
+			sf.lastDefaultOutputChange = now
+		}
+	}
+	if refreshInput {
+		if sf.lastDefaultInputChange.Add(minDefaultDeviceChangeThreshold).After(now) {
+			refreshInput = false
+		} else {
+			sf.lastDefaultInputChange = now
+		}
+	}
+	sf.debounceMu.Unlock()
+
+	if !refreshOutput && !refreshInput {
 		return nil
 	}
-
-	sf.lastDefaultDeviceChange = now
 
 	sf.logger.Debugw("Default audio device changed", "flow", flow, "role", role, "deviceID", pwstrDeviceID)
 
 	sf.dispatchWork(func() {
-		// Handle output device change
-		if flow == wca.ERender || flow == wca.EAll {
+		if refreshOutput {
 			sf.refreshMasterOutput()
 		}
 
-		// Handle input device change
-		if flow == wca.ECapture || flow == wca.EAll {
+		if refreshInput {
 			sf.refreshMasterInput()
 		}
 	})
