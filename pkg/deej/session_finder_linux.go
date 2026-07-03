@@ -13,6 +13,9 @@ import (
 
 const (
 	reconnectDelay = 2 * time.Second
+
+	// buffer size for the event work channel
+	paWorkChanSize = 512
 )
 
 type paSessionFinder struct {
@@ -35,6 +38,10 @@ type paSessionFinder struct {
 	handler SessionEventHandler
 	started bool
 
+	// workChan receives jobs to be executed serially on the worker goroutine,
+	// preserving the order in which PulseAudio delivered the events
+	workChan chan func()
+
 	reconnectCh chan struct{}
 	stopCh      chan struct{}
 }
@@ -46,6 +53,7 @@ func newSessionFinder(logger *zap.SugaredLogger) (SessionFinder, error) {
 		sinkInputs:    make(map[uint32]*paSession),
 		namedSinks:    make(map[uint32]*masterSession),
 		namedSources:  make(map[uint32]*masterSession),
+		workChan:      make(chan func(), paWorkChanSize),
 		reconnectCh:   make(chan struct{}, 1),
 		stopCh:        make(chan struct{}),
 	}
@@ -66,9 +74,34 @@ func (sf *paSessionFinder) Start(handler SessionEventHandler) error {
 		return err
 	}
 
+	go sf.eventWorker()
 	go sf.connectionManager()
 
 	return nil
+}
+
+// eventWorker executes queued jobs one at a time, so session add/remove
+// events are always processed in the order PulseAudio delivered them
+func (sf *paSessionFinder) eventWorker() {
+	for {
+		select {
+		case <-sf.stopCh:
+			return
+		case work := <-sf.workChan:
+			work()
+		}
+	}
+}
+
+// dispatchWork queues fn for execution on the worker goroutine. It must not
+// block: it is called from the pulse client's read loop, which also delivers
+// the replies our handlers wait for
+func (sf *paSessionFinder) dispatchWork(fn func()) {
+	select {
+	case sf.workChan <- fn:
+	default:
+		sf.logger.Warn("Event work channel full, dropping event")
+	}
 }
 
 func (sf *paSessionFinder) connectionManager() {
@@ -168,9 +201,16 @@ func (sf *paSessionFinder) connect() error {
 	sf.conn = conn
 	sf.mu.Unlock()
 
-	sf.refreshMaster()
-	sf.enumerateExistingSessions()
-	sf.enumerateExistingDevices()
+	// queue the initial enumeration before subscribing: subscription events go
+	// through the same queue, so anything that changes during or after the
+	// enumeration is processed strictly after it. subscribing after
+	// enumerating directly (the old order) would lose sessions created in
+	// between, with no periodic refresh to ever pick them up
+	sf.dispatchWork(func() {
+		sf.refreshMaster()
+		sf.enumerateExistingSessions()
+		sf.enumerateExistingDevices()
+	})
 
 	if err := client.Request(&proto.Subscribe{
 		Mask: proto.SubscriptionMaskSinkInput | proto.SubscriptionMaskServer | proto.SubscriptionMaskSink | proto.SubscriptionMaskSource,
@@ -192,15 +232,18 @@ func (sf *paSessionFinder) requestReconnect() {
 func (sf *paSessionFinder) onPulseEvent(msg any) {
 	switch v := msg.(type) {
 	case *proto.SubscribeEvent:
+		eventType := v.Event.GetType()
+		index := v.Index
+
 		switch v.Event.GetFacility() {
 		case proto.EventSinkSinkInput:
-			go sf.handleSinkInputEvent(v.Event.GetType(), v.Index)
+			sf.dispatchWork(func() { sf.handleSinkInputEvent(eventType, index) })
 		case proto.EventServer:
-			go sf.refreshMaster()
+			sf.dispatchWork(sf.refreshMaster)
 		case proto.EventSink:
-			go sf.handleSinkEvent(v.Event.GetType(), v.Index)
+			sf.dispatchWork(func() { sf.handleSinkEvent(eventType, index) })
 		case proto.EventSource:
-			go sf.handleSourceEvent(v.Event.GetType(), v.Index)
+			sf.dispatchWork(func() { sf.handleSourceEvent(eventType, index) })
 		}
 	case *proto.ConnectionClosed:
 		sf.logger.Warn("PulseAudio connection closed, trying to reconnect")
