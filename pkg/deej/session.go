@@ -16,6 +16,12 @@ type Session interface {
 	// SetMute(m bool) error
 
 	Key() string
+
+	// IsDevice returns true for device master sessions (a specific audio
+	// device's volume, as opposed to a process session or the default
+	// master/mic session)
+	IsDevice() bool
+
 	Release()
 }
 
@@ -33,12 +39,17 @@ type baseSession struct {
 	logger *zap.SugaredLogger
 	system bool
 	master bool
+	device bool
 
 	// used by Key(), needs to be set by child
 	name string
 
 	// used by String(), needs to be set by child
 	humanReadableDesc string
+}
+
+func (s *baseSession) IsDevice() bool {
+	return s.device
 }
 
 func (s *baseSession) Key() string {

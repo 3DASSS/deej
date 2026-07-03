@@ -490,6 +490,7 @@ func (sf *paSessionFinder) addSinkFromInfo(info *proto.GetSinkInfoReply) {
 		return
 	}
 	session := newNamedMasterSession(sf.sessionLogger, sf.client, info.SinkIndex, info.Channels, true, description)
+	session.device = true
 	sf.namedSinks[info.SinkIndex] = session
 	sf.mu.Unlock()
 
@@ -533,6 +534,7 @@ func (sf *paSessionFinder) addSourceFromInfo(info *proto.GetSourceInfoReply) {
 		return
 	}
 	session := newNamedMasterSession(sf.sessionLogger, sf.client, info.SourceIndex, info.Channels, false, description)
+	session.device = true
 	sf.namedSources[info.SourceIndex] = session
 	sf.mu.Unlock()
 

@@ -646,7 +646,13 @@ func (sf *wcaSessionFinder) createDeviceMasterSession(device *wca.IMMDevice) (*m
 	}
 	endpointFriendlyName := value.String()
 
-	return sf.getMasterSession(device, endpointFriendlyName, fmt.Sprintf(deviceSessionFormat, endpointDescription))
+	master, err := sf.getMasterSession(device, endpointFriendlyName, fmt.Sprintf(deviceSessionFormat, endpointDescription))
+	if err != nil {
+		return nil, err
+	}
+	master.device = true
+
+	return master, nil
 }
 
 func (sf *wcaSessionFinder) getMasterSession(mmDevice *wca.IMMDevice, key string, loggerKey string) (*masterSession, error) {

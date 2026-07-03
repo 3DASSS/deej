@@ -2,7 +2,6 @@ package deej
 
 import (
 	"fmt"
-	"regexp"
 	"strings"
 	"sync"
 
@@ -47,9 +46,6 @@ const (
 	// targets all currently unmapped sessions (experimental)
 	specialTargetAllUnmapped = "unmapped"
 )
-
-// this matches friendly device names (on Windows), e.g. "Headphones (Realtek Audio)"
-var deviceSessionKeyPattern = regexp.MustCompile(`^.+ \(.+\)$`)
 
 func newSessionMap(deej *Deej, logger *zap.SugaredLogger, sessionFinder SessionFinder) (*sessionMap, error) {
 	logger = logger.Named("sessions")
@@ -209,7 +205,7 @@ func (m *sessionMap) sessionMapped(session Session) bool {
 	}
 
 	// count device sessions as mapped
-	if deviceSessionKeyPattern.MatchString(session.Key()) {
+	if session.IsDevice() {
 		return true
 	}
 
