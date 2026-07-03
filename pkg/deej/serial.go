@@ -151,6 +151,13 @@ func (sio *SerialIO) connect() error {
 	err = port.SetReadTimeout(serial.NoTimeout)
 	if err != nil {
 		sio.logger.Warnw("Failed to set read timeout", "error", err)
+
+		// close the port before bailing, otherwise the handle stays open
+		// and every future open attempt fails with access denied
+		if closeErr := port.Close(); closeErr != nil {
+			sio.logger.Warnw("Failed to close serial connection", "error", closeErr)
+		}
+
 		return fmt.Errorf("set read timeout: %w", err)
 	}
 
@@ -168,6 +175,9 @@ func (sio *SerialIO) Start() {
 	sio.stopChannel = make(chan struct{})
 	sio.logger.Info("Serial starting")
 
+	// wg.Add must happen before the goroutine starts, not inside it,
+	// so that a quick Stop can't call wg.Wait before the count is registered
+	sio.wg.Add(1)
 	go sio.managerLoop()
 }
 
@@ -230,7 +240,6 @@ func (sio *SerialIO) setupOnConfigReload() {
 
 // manages serial connection and retries
 func (sio *SerialIO) managerLoop() {
-	sio.wg.Add(1)
 	defer sio.wg.Done()
 
 	sio.logger.Infow("Trying serial connection",
@@ -276,6 +285,7 @@ func (sio *SerialIO) managerLoop() {
 		sio.deej.notifier.Notify(connectedTitle, connectedDescription)
 
 		errChannel := make(chan error, 1)
+		sio.wg.Add(1)
 		go sio.readLoop(namedLogger, errChannel)
 
 		select {
@@ -313,7 +323,6 @@ func (sio *SerialIO) managerLoop() {
 }
 
 func (sio *SerialIO) readLoop(logger *zap.SugaredLogger, errChannel chan<- error) {
-	sio.wg.Add(1)
 	defer sio.wg.Done()
 
 	reader := bufio.NewReader(sio.port)
