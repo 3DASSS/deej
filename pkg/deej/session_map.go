@@ -82,7 +82,13 @@ func (m *sessionMap) notifySessionCountChange() {
 
 func (m *sessionMap) initialize() error {
 	m.setupOnSliderMove()
-	m.setupOnSessionEvents(m.sessionFinder)
+
+	// the handler must be registered before the finder starts discovering
+	// sessions, otherwise startup enumeration events would be lost
+	if err := m.sessionFinder.Start(m.handleSessionEvent); err != nil {
+		return fmt.Errorf("start session finder: %w", err)
+	}
+
 	return nil
 }
 
@@ -106,19 +112,15 @@ func (m *sessionMap) setupOnSliderMove() {
 	}()
 }
 
-func (m *sessionMap) setupOnSessionEvents(finder SessionFinder) {
-	sessionEventsChan := finder.SubscribeToSessionEvents()
-
-	go func() {
-		for event := range sessionEventsChan {
-			switch event.Type {
-			case SessionEventAdded:
-				m.handleSessionAdded(event)
-			case SessionEventRemoved:
-				m.handleSessionRemoved(event)
-			}
-		}
-	}()
+// handleSessionEvent is called synchronously by the session finder,
+// potentially from multiple goroutines
+func (m *sessionMap) handleSessionEvent(event SessionEvent) {
+	switch event.Type {
+	case SessionEventAdded:
+		m.handleSessionAdded(event)
+	case SessionEventRemoved:
+		m.handleSessionRemoved(event)
+	}
 }
 
 func (m *sessionMap) handleSessionAdded(event SessionEvent) {
@@ -145,17 +147,22 @@ func (m *sessionMap) handleSessionRemoved(event SessionEvent) {
 
 	m.logger.Debugw("Session removed event received", "key", event.Session.Key())
 
+	// the finder releases the session as soon as this handler returns. taking
+	// the lock here guarantees the session is unreachable by then: it's out of
+	// the map, and no setSessionVolumes call is still using it
+	m.lock.Lock()
+
 	// Remove from the main map
-	m.removeSession(event.Session)
+	m.removeSessionLocked(event.Session)
 
 	// Remove from unmapped sessions if present
-	m.lock.Lock()
 	for i, unmapped := range m.unmappedSessions {
 		if unmapped == event.Session {
 			m.unmappedSessions = append(m.unmappedSessions[:i], m.unmappedSessions[i+1:]...)
 			break
 		}
 	}
+
 	m.lock.Unlock()
 
 	m.notifySessionCountChange()
@@ -166,6 +173,11 @@ func (m *sessionMap) removeSession(session Session) {
 	m.lock.Lock()
 	defer m.lock.Unlock()
 
+	m.removeSessionLocked(session)
+}
+
+// removeSessionLocked removes a specific session from the map. m.lock must be held
+func (m *sessionMap) removeSessionLocked(session Session) {
 	key := session.Key()
 	sessions, ok := m.m[key]
 	if !ok {
@@ -249,22 +261,30 @@ func (m *sessionMap) handleSliderMoveEvent(event SliderMoveEvent) {
 
 		// for each resolved target...
 		for _, resolvedTarget := range resolvedTargets {
+			m.setSessionVolumes(resolvedTarget, event.PercentValue)
+		}
+	}
+}
 
-			// check the map for matching sessions
-			sessions, ok := m.get(resolvedTarget)
+// setSessionVolumes adjusts the volume of every session matching the target.
+// it holds the lock for the duration of the adjustment so a session can't be
+// removed (and released) while its volume is being set
+func (m *sessionMap) setSessionVolumes(target string, volume float32) {
+	m.lock.Lock()
+	defer m.lock.Unlock()
 
-			// no sessions matching this target - move on
-			if !ok {
-				continue
-			}
+	sessions, ok := m.m[target]
 
-			// iterate all matching sessions and adjust the volume of each one
-			for _, session := range sessions {
-				if session.GetVolume() != event.PercentValue {
-					if err := session.SetVolume(event.PercentValue); err != nil {
-						m.logger.Warnw("Failed to set target session volume", "error", err)
-					}
-				}
+	// no sessions matching this target - move on
+	if !ok {
+		return
+	}
+
+	// iterate all matching sessions and adjust the volume of each one
+	for _, session := range sessions {
+		if session.GetVolume() != volume {
+			if err := session.SetVolume(volume); err != nil {
+				m.logger.Warnw("Failed to set target session volume", "error", err)
 			}
 		}
 	}

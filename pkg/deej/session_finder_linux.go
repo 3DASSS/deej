@@ -1,6 +1,7 @@
 package deej
 
 import (
+	"errors"
 	"fmt"
 	"net"
 	"sync"
@@ -11,8 +12,7 @@ import (
 )
 
 const (
-	sessionEventChanSize = 100
-	reconnectDelay       = 2 * time.Second
+	reconnectDelay = 2 * time.Second
 )
 
 type paSessionFinder struct {
@@ -30,9 +30,13 @@ type paSessionFinder struct {
 	namedSinks   map[uint32]*masterSession
 	namedSources map[uint32]*masterSession
 
-	sessionEvents chan SessionEvent
-	reconnectCh   chan struct{}
-	stopCh        chan struct{}
+	// receives session events synchronously; set once by Start before any
+	// connection is made
+	handler SessionEventHandler
+	started bool
+
+	reconnectCh chan struct{}
+	stopCh      chan struct{}
 }
 
 func newSessionFinder(logger *zap.SugaredLogger) (SessionFinder, error) {
@@ -42,19 +46,29 @@ func newSessionFinder(logger *zap.SugaredLogger) (SessionFinder, error) {
 		sinkInputs:    make(map[uint32]*paSession),
 		namedSinks:    make(map[uint32]*masterSession),
 		namedSources:  make(map[uint32]*masterSession),
-		sessionEvents: make(chan SessionEvent, sessionEventChanSize),
 		reconnectCh:   make(chan struct{}, 1),
 		stopCh:        make(chan struct{}),
 	}
 
+	sf.logger.Debug("Created event-driven PA session finder")
+	return sf, nil
+}
+
+// Start begins session discovery, delivering events synchronously to handler
+func (sf *paSessionFinder) Start(handler SessionEventHandler) error {
+	if sf.started {
+		return errors.New("session finder already started")
+	}
+	sf.started = true
+	sf.handler = handler
+
 	if err := sf.connect(); err != nil {
-		return nil, err
+		return err
 	}
 
 	go sf.connectionManager()
 
-	sf.logger.Debug("Created event-driven PA session finder")
-	return sf, nil
+	return nil
 }
 
 func (sf *paSessionFinder) connectionManager() {
@@ -90,35 +104,33 @@ func (sf *paSessionFinder) handleReconnect() {
 }
 
 func (sf *paSessionFinder) clearSessions() {
+	// collect all sessions under the lock, then notify outside of it: the
+	// handler runs synchronously and must not be called while holding sf.mu
 	sf.mu.Lock()
-	defer sf.mu.Unlock()
+
+	removed := make([]Session, 0, len(sf.sinkInputs)+len(sf.namedSinks)+len(sf.namedSources)+2)
 
 	for _, s := range sf.sinkInputs {
-		sf.emitEvent(SessionEvent{Type: SessionEventRemoved, Session: s})
-		s.Release()
+		removed = append(removed, s)
 	}
 	sf.sinkInputs = make(map[uint32]*paSession)
 
 	for _, s := range sf.namedSinks {
-		sf.emitEvent(SessionEvent{Type: SessionEventRemoved, Session: s})
-		s.Release()
+		removed = append(removed, s)
 	}
 	sf.namedSinks = make(map[uint32]*masterSession)
 
 	for _, s := range sf.namedSources {
-		sf.emitEvent(SessionEvent{Type: SessionEventRemoved, Session: s})
-		s.Release()
+		removed = append(removed, s)
 	}
 	sf.namedSources = make(map[uint32]*masterSession)
 
 	if sf.masterSink != nil {
-		sf.emitEvent(SessionEvent{Type: SessionEventRemoved, Session: sf.masterSink})
-		sf.masterSink.Release()
+		removed = append(removed, sf.masterSink)
 		sf.masterSink = nil
 	}
 	if sf.masterSource != nil {
-		sf.emitEvent(SessionEvent{Type: SessionEventRemoved, Session: sf.masterSource})
-		sf.masterSource.Release()
+		removed = append(removed, sf.masterSource)
 		sf.masterSource = nil
 	}
 
@@ -127,6 +139,13 @@ func (sf *paSessionFinder) clearSessions() {
 		sf.conn = nil
 	}
 	sf.client = nil
+
+	sf.mu.Unlock()
+
+	for _, s := range removed {
+		sf.notify(SessionEvent{Type: SessionEventRemoved, Session: s})
+		s.Release()
+	}
 }
 
 func (sf *paSessionFinder) connect() error {
@@ -219,14 +238,15 @@ func (sf *paSessionFinder) refreshMasterSink() {
 
 	sf.mu.Lock()
 	old := sf.masterSink
-	sf.masterSink = newMasterSession(sf.sessionLogger, sf.client, reply.SinkIndex, reply.Channels, true)
+	newMaster := newMasterSession(sf.sessionLogger, sf.client, reply.SinkIndex, reply.Channels, true)
+	sf.masterSink = newMaster
 	sf.mu.Unlock()
 
 	if old != nil {
-		sf.emitEvent(SessionEvent{Type: SessionEventRemoved, Session: old})
+		sf.notify(SessionEvent{Type: SessionEventRemoved, Session: old})
 		old.Release()
 	}
-	sf.emitEvent(SessionEvent{Type: SessionEventAdded, Session: sf.masterSink})
+	sf.notify(SessionEvent{Type: SessionEventAdded, Session: newMaster})
 }
 
 func (sf *paSessionFinder) refreshMasterSource() {
@@ -245,14 +265,15 @@ func (sf *paSessionFinder) refreshMasterSource() {
 
 	sf.mu.Lock()
 	old := sf.masterSource
-	sf.masterSource = newMasterSession(sf.sessionLogger, sf.client, reply.SourceIndex, reply.Channels, false)
+	newMaster := newMasterSession(sf.sessionLogger, sf.client, reply.SourceIndex, reply.Channels, false)
+	sf.masterSource = newMaster
 	sf.mu.Unlock()
 
 	if old != nil {
-		sf.emitEvent(SessionEvent{Type: SessionEventRemoved, Session: old})
+		sf.notify(SessionEvent{Type: SessionEventRemoved, Session: old})
 		old.Release()
 	}
-	sf.emitEvent(SessionEvent{Type: SessionEventAdded, Session: sf.masterSource})
+	sf.notify(SessionEvent{Type: SessionEventAdded, Session: newMaster})
 }
 
 func (sf *paSessionFinder) enumerateExistingSessions() {
@@ -313,7 +334,7 @@ func (sf *paSessionFinder) addSinkInputFromInfo(info *proto.GetSinkInputInfoRepl
 	sf.sinkInputs[info.SinkInputIndex] = session
 	sf.mu.Unlock()
 
-	sf.emitEvent(SessionEvent{Type: SessionEventAdded, Session: session})
+	sf.notify(SessionEvent{Type: SessionEventAdded, Session: session})
 	sf.logger.Debugw("Added session", "index", info.SinkInputIndex, "name", name.String())
 }
 
@@ -327,7 +348,7 @@ func (sf *paSessionFinder) removeSinkInput(index uint32) {
 	delete(sf.sinkInputs, index)
 	sf.mu.Unlock()
 
-	sf.emitEvent(SessionEvent{Type: SessionEventRemoved, Session: session})
+	sf.notify(SessionEvent{Type: SessionEventRemoved, Session: session})
 	session.Release()
 	sf.logger.Debugw("Removed session", "index", index)
 }
@@ -429,7 +450,7 @@ func (sf *paSessionFinder) addSinkFromInfo(info *proto.GetSinkInfoReply) {
 	sf.namedSinks[info.SinkIndex] = session
 	sf.mu.Unlock()
 
-	sf.emitEvent(SessionEvent{Type: SessionEventAdded, Session: session})
+	sf.notify(SessionEvent{Type: SessionEventAdded, Session: session})
 	sf.logger.Debugw("Added named sink", "index", info.SinkIndex, "description", description)
 }
 
@@ -472,7 +493,7 @@ func (sf *paSessionFinder) addSourceFromInfo(info *proto.GetSourceInfoReply) {
 	sf.namedSources[info.SourceIndex] = session
 	sf.mu.Unlock()
 
-	sf.emitEvent(SessionEvent{Type: SessionEventAdded, Session: session})
+	sf.notify(SessionEvent{Type: SessionEventAdded, Session: session})
 	sf.logger.Debugw("Added named source", "index", info.SourceIndex, "description", description)
 }
 
@@ -486,7 +507,7 @@ func (sf *paSessionFinder) removeSink(index uint32) {
 	delete(sf.namedSinks, index)
 	sf.mu.Unlock()
 
-	sf.emitEvent(SessionEvent{Type: SessionEventRemoved, Session: session})
+	sf.notify(SessionEvent{Type: SessionEventRemoved, Session: session})
 	session.Release()
 	sf.logger.Debugw("Removed named sink", "index", index)
 }
@@ -501,20 +522,16 @@ func (sf *paSessionFinder) removeSource(index uint32) {
 	delete(sf.namedSources, index)
 	sf.mu.Unlock()
 
-	sf.emitEvent(SessionEvent{Type: SessionEventRemoved, Session: session})
+	sf.notify(SessionEvent{Type: SessionEventRemoved, Session: session})
 	session.Release()
 	sf.logger.Debugw("Removed named source", "index", index)
 }
 
-func (sf *paSessionFinder) emitEvent(event SessionEvent) {
-	select {
-	case sf.sessionEvents <- event:
-	default:
-	}
-}
-
-func (sf *paSessionFinder) SubscribeToSessionEvents() <-chan SessionEvent {
-	return sf.sessionEvents
+// notify delivers a session event to the handler synchronously. For removed
+// events the session must stay valid until this returns; the caller may
+// release it afterwards
+func (sf *paSessionFinder) notify(event SessionEvent) {
+	sf.handler(event)
 }
 
 func (sf *paSessionFinder) Release() error {

@@ -37,10 +37,8 @@ type wcaSessionFinder struct {
 	mu sync.RWMutex
 
 	// our master input and output sessions
-	masterOut   *masterSession
-	masterIn    *masterSession
-	masterOutID string
-	masterInID  string
+	masterOut *masterSession
+	masterIn  *masterSession
 
 	// per-device session managers (persistent)
 	deviceManagers map[string]*deviceSessionManager
@@ -48,8 +46,10 @@ type wcaSessionFinder struct {
 	// tracked sessions with their event callbacks
 	trackedSessions map[string]*trackedSession
 
-	// event channels
-	sessionEventChan chan SessionEvent
+	// receives session events synchronously; set once by Start before the
+	// worker goroutine runs
+	handler SessionEventHandler
+	started bool
 
 	workerCtx    context.Context
 	workerCancel context.CancelFunc
@@ -83,33 +83,44 @@ const (
 	// prefix for device sessions in logger
 	deviceSessionFormat = "device.%s"
 
-	// buffer size for session event channel
-	sessionEventChanSize = 100
-
 	// buffer size for the device work channel
 	deviceWorkChanSize = 50
+
+	// session IDs for the default device master sessions
+	masterOutputSessionID = "master_output"
+	masterInputSessionID  = "master_input"
 )
 
 func newSessionFinder(logger *zap.SugaredLogger) (SessionFinder, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	sf := &wcaSessionFinder{
-		logger:           logger.Named("session_finder"),
-		sessionLogger:    logger.Named("sessions"),
-		eventCtx:         ole.NewGUID(myteriousGUID),
-		deviceManagers:   make(map[string]*deviceSessionManager),
-		trackedSessions:  make(map[string]*trackedSession),
-		sessionEventChan: make(chan SessionEvent, sessionEventChanSize),
-		workChan:         make(chan func(), deviceWorkChanSize),
-		workerCtx:        ctx,
-		workerCancel:     cancel,
+		logger:          logger.Named("session_finder"),
+		sessionLogger:   logger.Named("sessions"),
+		eventCtx:        ole.NewGUID(myteriousGUID),
+		deviceManagers:  make(map[string]*deviceSessionManager),
+		trackedSessions: make(map[string]*trackedSession),
+		workChan:        make(chan func(), deviceWorkChanSize),
+		workerCtx:       ctx,
+		workerCancel:    cancel,
 	}
 
 	sf.logger.Debug("Created WCA session finder instance")
 
-	go sf.sessionFinderWorker(ctx)
-
 	return sf, nil
+}
+
+// Start begins session discovery, delivering events synchronously to handler
+func (sf *wcaSessionFinder) Start(handler SessionEventHandler) error {
+	if sf.started {
+		return errors.New("session finder already started")
+	}
+	sf.started = true
+	sf.handler = handler
+
+	go sf.sessionFinderWorker(sf.workerCtx)
+
+	return nil
 }
 
 // I noticed that deej crashes with E_INVALIDARG when trying to run it in VM over RDP
@@ -177,6 +188,10 @@ func (sf *wcaSessionFinder) sessionFinderWorker(ctx context.Context) {
 	sf.logger.Info("COM initialized for session finder")
 	defer ole.CoUninitialize()
 
+	// all COM objects are owned by this goroutine, so cleanup must run here on
+	// every exit path (and before CoUninitialize)
+	defer sf.cleanup()
+
 	// Initialize device enumerator and register for device notifications
 	if err := sf.initializeDeviceEnumerator(); err != nil {
 		sf.logger.Errorw("Failed to initialize device enumerator", "error", err)
@@ -197,7 +212,6 @@ func (sf *wcaSessionFinder) sessionFinderWorker(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			sf.logger.Info("Session finder worker stopping")
-			sf.cleanup()
 			return
 		case work := <-sf.workChan:
 			work()
@@ -269,12 +283,9 @@ func (sf *wcaSessionFinder) initializeMasterSessions() {
 	sf.refreshMasterInput()
 }
 
-func (sf *wcaSessionFinder) emitSessionEvent(event SessionEvent) {
-	select {
-	case sf.sessionEventChan <- event:
-	default:
-		sf.logger.Warnw("Session event channel full, dropping event", "type", event.Type, "sessionID", event.SessionID)
-	}
+// notify delivers a session event to the handler synchronously
+func (sf *wcaSessionFinder) notify(event SessionEvent) {
+	sf.handler(event)
 }
 
 // dispatchWork sends fn to the worker goroutine for execution on the COM-initialized thread.
@@ -337,7 +348,7 @@ func (sf *wcaSessionFinder) createDeviceManager(device *wca.IMMDevice) error {
 	} else {
 		dm.masterSession = deviceMasterSession
 		// Emit event for device master session
-		sf.emitSessionEvent(SessionEvent{Type: SessionEventAdded, Session: deviceMasterSession, SessionID: "device_" + deviceIDStr})
+		sf.notify(SessionEvent{Type: SessionEventAdded, Session: deviceMasterSession, SessionID: "device_" + deviceIDStr})
 	}
 
 	// Only register for session notifications on output devices (they have process sessions)
@@ -399,19 +410,22 @@ func (sf *wcaSessionFinder) enumerateDeviceSessions(dm *deviceSessionManager) {
 func (sf *wcaSessionFinder) onSessionCreated(deviceID string, newSession *wca.IAudioSessionControl) error {
 	sf.logger.Debugw("New session created callback", "deviceID", deviceID)
 
-	// AddRef because Windows will release the passed reference after callback returns
+	// AddRef because Windows will release the passed reference after callback returns.
+	// addSessionFromControl takes ownership of this reference and releases it
+	// on every error path, so no release is needed here
 	newSession.AddRef()
 
 	sf.dispatchWork(func() {
 		if err := sf.addSessionFromControl(deviceID, newSession); err != nil {
 			sf.logger.Debugw("Failed to add new session", "deviceID", deviceID, "error", err)
-			newSession.Release()
 		}
 	})
 
 	return nil
 }
 
+// addSessionFromControl takes ownership of audioSessionControl: on success it is
+// kept in trackedSessions, on any error (or duplicate) it is released here
 func (sf *wcaSessionFinder) addSessionFromControl(deviceID string, audioSessionControl *wca.IAudioSessionControl) error {
 	// Query IAudioSessionControl2
 	dispatch, err := audioSessionControl.QueryInterface(wca.IID_IAudioSessionControl2)
@@ -456,6 +470,16 @@ func (sf *wcaSessionFinder) addSessionFromControl(deviceID string, audioSessionC
 
 	sessionID := fmt.Sprintf("%s_%s_%d", deviceID, session.Key(), pid)
 
+	// Check if session already exists
+	sf.mu.Lock()
+	if _, exists := sf.trackedSessions[sessionID]; exists {
+		sf.mu.Unlock()
+		session.Release()
+		audioSessionControl.Release()
+		return nil
+	}
+	sf.mu.Unlock()
+
 	// Register session events callback
 	eventsCallback := win.IAudioSessionEventsCallback{
 		OnStateChanged: func(newState uint32) error {
@@ -479,14 +503,6 @@ func (sf *wcaSessionFinder) addSessionFromControl(deviceID string, audioSessionC
 	}
 
 	sf.mu.Lock()
-	// Check if session already exists
-	if _, exists := sf.trackedSessions[sessionID]; exists {
-		sf.mu.Unlock()
-		session.Release()
-		audioSessionControl.Release()
-		return nil
-	}
-
 	sf.trackedSessions[sessionID] = &trackedSession{
 		session:       session,
 		eventCallback: sessionEvents,
@@ -494,7 +510,7 @@ func (sf *wcaSessionFinder) addSessionFromControl(deviceID string, audioSessionC
 	}
 	sf.mu.Unlock()
 
-	sf.emitSessionEvent(SessionEvent{Type: SessionEventAdded, Session: session, SessionID: sessionID})
+	sf.notify(SessionEvent{Type: SessionEventAdded, Session: session, SessionID: sessionID})
 
 	sf.logger.Debugw("Added tracked session", "sessionID", sessionID, "key", session.Key())
 	return nil
@@ -518,9 +534,11 @@ func (sf *wcaSessionFinder) removeSession(sessionID string) {
 		tracked.control.Release()
 	}
 
-	sf.emitSessionEvent(SessionEvent{Type: SessionEventRemoved, SessionID: sessionID, Session: tracked.session})
-
+	// once the handler returns, the session map can no longer reach this
+	// session, so releasing its COM interfaces is safe
+	sf.notify(SessionEvent{Type: SessionEventRemoved, SessionID: sessionID, Session: tracked.session})
 	tracked.session.Release()
+
 	sf.logger.Debugw("Removed tracked session", "sessionID", sessionID)
 }
 
@@ -556,8 +574,9 @@ func (sf *wcaSessionFinder) removeDeviceManager(deviceID string) {
 	}
 
 	if dm.masterSession != nil {
-		sf.emitSessionEvent(SessionEvent{Type: SessionEventRemoved, Session: dm.masterSession, SessionID: "device_" + deviceID})
+		sf.notify(SessionEvent{Type: SessionEventRemoved, Session: dm.masterSession, SessionID: "device_" + deviceID})
 		dm.masterSession.Release()
+		dm.masterSession = nil
 	}
 	if dm.sessionManager != nil {
 		dm.sessionManager.Release()
@@ -581,8 +600,30 @@ func (sf *wcaSessionFinder) cleanup() {
 		sf.removeDeviceManager(id)
 	}
 
+	// Remove master sessions
+	sf.mu.Lock()
+	masterOut, masterIn := sf.masterOut, sf.masterIn
+	sf.masterOut, sf.masterIn = nil, nil
+	sf.mu.Unlock()
+
+	if masterOut != nil {
+		sf.notify(SessionEvent{Type: SessionEventRemoved, SessionID: masterOutputSessionID, Session: masterOut})
+		masterOut.Release()
+	}
+	if masterIn != nil {
+		sf.notify(SessionEvent{Type: SessionEventRemoved, SessionID: masterInputSessionID, Session: masterIn})
+		masterIn.Release()
+	}
+
 	if sf.mmDeviceEnumerator != nil {
+		if sf.mmNotificationClient != nil {
+			if err := sf.mmDeviceEnumerator.UnregisterEndpointNotificationCallback(sf.mmNotificationClient.ToWCA()); err != nil {
+				sf.logger.Debugw("Failed to unregister endpoint notification callback", "error", err)
+			}
+		}
+
 		sf.mmDeviceEnumerator.Release()
+		sf.mmDeviceEnumerator = nil
 	}
 }
 
@@ -624,17 +665,10 @@ func (sf *wcaSessionFinder) getMasterSession(mmDevice *wca.IMMDevice, key string
 	return master, nil
 }
 
-// SubscribeToSessionEvents returns a channel for session add/remove events
-func (sf *wcaSessionFinder) SubscribeToSessionEvents() <-chan SessionEvent {
-	return sf.sessionEventChan
-}
-
 func (sf *wcaSessionFinder) Release() error {
+	// the worker goroutine owns all COM objects (including the device
+	// enumerator) and cleans them up when the context is cancelled
 	sf.workerCancel()
-
-	if sf.mmDeviceEnumerator != nil {
-		sf.mmDeviceEnumerator.Release()
-	}
 
 	sf.logger.Debug("Released WCA session finder instance")
 	return nil
@@ -669,18 +703,18 @@ func (sf *wcaSessionFinder) defaultDeviceChangedCallback(
 }
 
 func (sf *wcaSessionFinder) refreshMasterOutput() {
+	// Remove old master output session. The handler runs synchronously, so it
+	// must not be called while holding sf.mu
 	sf.mu.Lock()
-	defer sf.mu.Unlock()
+	oldMaster := sf.masterOut
+	sf.masterOut = nil
+	sf.mu.Unlock()
 
-	// Remove old master output session
-	if sf.masterOut != nil {
+	if oldMaster != nil {
 		sf.logger.Debug("Removing old master output session")
 
-		sf.emitSessionEvent(SessionEvent{Type: SessionEventRemoved, SessionID: sf.masterOutID, Session: sf.masterOut})
-
-		sf.masterOut.Release()
-		sf.masterOut = nil
-		sf.masterOutID = ""
+		sf.notify(SessionEvent{Type: SessionEventRemoved, SessionID: masterOutputSessionID, Session: oldMaster})
+		oldMaster.Release()
 	}
 
 	// Get new default output device
@@ -698,27 +732,28 @@ func (sf *wcaSessionFinder) refreshMasterOutput() {
 		return
 	}
 
+	sf.mu.Lock()
 	sf.masterOut = masterOut
-	sf.masterOutID = "master_output"
+	sf.mu.Unlock()
 
-	sf.emitSessionEvent(SessionEvent{Type: SessionEventAdded, Session: masterOut, SessionID: sf.masterOutID})
+	sf.notify(SessionEvent{Type: SessionEventAdded, Session: masterOut, SessionID: masterOutputSessionID})
 
 	sf.logger.Debug("Refreshed master output session for new default device")
 }
 
 func (sf *wcaSessionFinder) refreshMasterInput() {
+	// Remove old master input session. The handler runs synchronously, so it
+	// must not be called while holding sf.mu
 	sf.mu.Lock()
-	defer sf.mu.Unlock()
+	oldMaster := sf.masterIn
+	sf.masterIn = nil
+	sf.mu.Unlock()
 
-	// Remove old master input session
-	if sf.masterIn != nil {
+	if oldMaster != nil {
 		sf.logger.Debug("Removing old master input session")
 
-		sf.emitSessionEvent(SessionEvent{Type: SessionEventRemoved, SessionID: sf.masterInID, Session: sf.masterIn})
-
-		sf.masterIn.Release()
-		sf.masterIn = nil
-		sf.masterInID = ""
+		sf.notify(SessionEvent{Type: SessionEventRemoved, SessionID: masterInputSessionID, Session: oldMaster})
+		oldMaster.Release()
 	}
 
 	// Get new default input device
@@ -736,10 +771,11 @@ func (sf *wcaSessionFinder) refreshMasterInput() {
 		return
 	}
 
+	sf.mu.Lock()
 	sf.masterIn = masterIn
-	sf.masterInID = "master_input"
+	sf.mu.Unlock()
 
-	sf.emitSessionEvent(SessionEvent{Type: SessionEventAdded, Session: masterIn, SessionID: sf.masterInID})
+	sf.notify(SessionEvent{Type: SessionEventAdded, Session: masterIn, SessionID: masterInputSessionID})
 
 	sf.logger.Debug("Refreshed master input session for new default device")
 }
