@@ -17,6 +17,16 @@ fi
 
 echo "Building deej ($MODE)..."
 
+# GOOS/GOARCH are honored for cross-compilation; Windows binaries need
+# an .exe suffix and (in release mode) the windowsgui flag to avoid
+# opening a console window
+EXT=""
+GUIFLAG=""
+if [ "$(go env GOOS)" = "windows" ]; then
+    EXT=".exe"
+    GUIFLAG="-H=windowsgui "
+fi
+
 # Get git commit and version tag
 GIT_COMMIT=$(git rev-list -1 --abbrev-commit HEAD)
 VERSION_TAG=$(git describe --tags --always)
@@ -29,9 +39,9 @@ echo "- buildType $BUILD_TYPE"
 
 # Build based on mode
 if [ "$MODE" = "dev" ]; then
-    go build -o build/deej-dev -ldflags "-X main.gitCommit=$GIT_COMMIT -X main.versionTag=$VERSION_TAG -X main.buildType=$BUILD_TYPE" ./pkg/deej/cmd
+    go build -o "build/deej-dev$EXT" -ldflags "-X main.gitCommit=$GIT_COMMIT -X main.versionTag=$VERSION_TAG -X main.buildType=$BUILD_TYPE" ./pkg/deej/cmd
 else
-    go build -o build/deej-release -ldflags "-s -w -X main.gitCommit=$GIT_COMMIT -X main.versionTag=$VERSION_TAG -X main.buildType=$BUILD_TYPE" ./pkg/deej/cmd
+    go build -o "build/deej-release$EXT" -ldflags "$GUIFLAG-s -w -X main.gitCommit=$GIT_COMMIT -X main.versionTag=$VERSION_TAG -X main.buildType=$BUILD_TYPE" ./pkg/deej/cmd
 fi
 
 # Check if build succeeded

@@ -1,4 +1,4 @@
-//go:generate rsrc -manifest deej.manifest  -ico ../../icon/assets/logo.ico -o rsrc_windows.syso
+//go:generate go run github.com/tc-hib/go-winres@latest make --arch amd64,arm64 --out rsrc
 
 package main
 

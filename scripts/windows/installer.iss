@@ -6,6 +6,12 @@
   #define AppVersion "v1.0.0"
 #endif
 
+; deej binaries to package; CI overrides Amd64Exe and defines Arm64Exe
+; to produce a universal installer bundling both architectures
+#ifndef Amd64Exe
+  #define Amd64Exe "../../build/deej-release.exe"
+#endif
+
 [Setup]
 AppId={{7CF11E9F-7191-458F-BE04-7520B911C391}
 AppName={#AppName}
@@ -44,7 +50,13 @@ russian.EditConfig=Редактировать конфигурацию
 Name: "autostart"; Description: "{cm:AutoStartProgram,{#AppName}}"
 
 [Files]
-Source: "../../build/deej-release.exe"; DestDir: "{app}"; DestName: {#AppExeName}; Flags: ignoreversion
+#ifdef Arm64Exe
+; install the binary matching the machine architecture
+Source: "{#Amd64Exe}"; DestDir: "{app}"; DestName: {#AppExeName}; Check: not IsArm64; Flags: ignoreversion
+Source: "{#Arm64Exe}"; DestDir: "{app}"; DestName: {#AppExeName}; Check: IsArm64; Flags: ignoreversion
+#else
+Source: "{#Amd64Exe}"; DestDir: "{app}"; DestName: {#AppExeName}; Flags: ignoreversion
+#endif
 Source: "../../config_examples/config.example.yaml"; DestDir: "{app}"; DestName: "config.yaml"; Flags: ignoreversion onlyifdoesntexist
 
 [Registry]

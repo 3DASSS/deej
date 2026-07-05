@@ -25,8 +25,10 @@ FOR /f "delims=" %%a IN ('git rev-list -1 --abbrev-commit HEAD') DO @SET GIT_COM
 FOR /f "delims=" %%a IN ('git describe --tags --always') DO @SET VERSION_TAG=%%a
 SET BUILD_TYPE=%MODE%
 
-IF NOT EXIST %DEEJ_ROOT%/pkg/deej/cmd/rsrc_windows.syso (
-    ECHO Generating resource file...
+IF NOT EXIST %DEEJ_ROOT%/pkg/deej/cmd/rsrc_windows_amd64.syso SET NEED_RSRC=1
+IF NOT EXIST %DEEJ_ROOT%/pkg/deej/cmd/rsrc_windows_arm64.syso SET NEED_RSRC=1
+IF DEFINED NEED_RSRC (
+    ECHO Generating resource files...
     go generate %DEEJ_ROOT%/...
 )
 

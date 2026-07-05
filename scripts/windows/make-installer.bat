@@ -2,6 +2,11 @@
 
 SET "DEEJ_ROOT=%~dp0..\.."
 
+IF NOT EXIST "%DEEJ_ROOT%\build\deej-release.exe" (
+    ECHO build\deej-release.exe not found! Run scripts\windows\build-release.bat first.
+    EXIT /B 1
+)
+
 FOR /f "delims=" %%a IN ('git rev-list -1 --abbrev-commit HEAD') DO @SET GIT_COMMIT=%%a
 FOR /f "delims=" %%a IN ('git describe --tags --always') DO @SET VERSION_TAG=%%a
 
