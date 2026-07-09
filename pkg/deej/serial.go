@@ -9,8 +9,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"sync/atomic"
-	"time"
 
 	"go.bug.st/serial"
 	"go.bug.st/serial/enumerator"
@@ -19,24 +17,27 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/nik9play/deej/pkg/deej/util"
+	"github.com/nik9play/deej/pkg/reconnect"
 )
+
+// serialConn is one serial connection generation, carrying the port name it
+// resolved to and the connection parameters it was opened with so config
+// reloads can detect changes
+type serialConn struct {
+	port     serial.Port
+	comPort  string
+	connInfo ConnectionInfo
+}
 
 // SerialIO provides a deej-aware abstraction layer to managing serial I/O
 type SerialIO struct {
-	comPortToUse string
-
-	lastConnectionInfo atomic.Pointer[ConnectionInfo]
-
 	deej   *Deej
 	logger *zap.SugaredLogger
 
-	stopChannel chan struct{}
-	wg          sync.WaitGroup
-	port        serial.Port
-	mode        serial.Mode
-	connected   atomic.Bool
+	reconnector *reconnect.Reconnector[serialConn]
 
 	stateLock           sync.Mutex
+	comPortToUse        string
 	lastKnownNumSliders int
 	currentSliderValues []int
 
@@ -65,10 +66,18 @@ func NewSerialIO(deej *Deej, logger *zap.SugaredLogger) (*SerialIO, error) {
 	sio := &SerialIO{
 		deej:                 deej,
 		logger:               logger,
-		port:                 nil,
 		sliderMoveConsumers:  []chan SliderMoveEvent{},
 		stateChangeConsumers: []chan bool{},
 	}
+
+	sio.reconnector = reconnect.New(reconnect.Options[serialConn]{
+		Logger: logger,
+		Dial:   sio.dial,
+		Watch:  sio.watch,
+		Close:  sio.close,
+		OnUp:   sio.onUp,
+		OnDown: sio.onDown,
+	})
 
 	logger.Debug("Created serial i/o instance")
 
@@ -78,32 +87,26 @@ func NewSerialIO(deej *Deej, logger *zap.SugaredLogger) (*SerialIO, error) {
 	return sio, nil
 }
 
-func (sio *SerialIO) connect() error {
-	// don't allow multiple concurrent connections
-	if sio.port != nil {
-		sio.logger.Warn("Already connected, can't start another without closing first")
-		return errors.New("serial: connection already active")
-	}
-
+// dial resolves the com port (autodetecting by VID/PID if configured) and
+// opens it
+func (sio *SerialIO) dial() (serialConn, error) {
 	config := sio.deej.config.Values()
-	sio.lastConnectionInfo.Store(&config.ConnectionInfo)
 
-	sio.comPortToUse = config.ConnectionInfo.COMPort
-
+	comPort := config.ConnectionInfo.COMPort
 	allowedVIDPID := config.AutoSearchVIDPID
 
-	if config.ConnectionInfo.COMPort == "auto" {
+	if comPort == "auto" {
 		sio.logger.Debugw("Trying to autodetect serial port")
 
 		ports, err := enumerator.GetDetailedPortsList()
 
 		if err != nil {
 			sio.logger.Errorw("Failed to enumarate serial ports, retrying", "err", err)
-			return ErrNoSerialPorts
+			return serialConn{}, ErrNoSerialPorts
 		}
 		if len(ports) == 0 {
 			sio.logger.Debug("No serial ports found, retrying")
-			return ErrNoSerialPorts
+			return serialConn{}, ErrNoSerialPorts
 		}
 		for _, port := range ports {
 			sio.logger.Debugf("Found port: %s", port.Name)
@@ -116,35 +119,35 @@ func (sio *SerialIO) connect() error {
 				if vid == allowedVIDPID.VID && pid == allowedVIDPID.PID {
 					sio.logger.Debugw("Found COM port", "com", port.Name, "vid", port.VID, "pid", port.PID)
 
-					sio.comPortToUse = port.Name
+					comPort = port.Name
 					break
 				}
 
 			}
 		}
 
-		if sio.comPortToUse == "auto" {
+		if comPort == "auto" {
 			sio.logger.Debug("COM port not found, retrying")
-			return ErrAutoPortNotFound
+			return serialConn{}, ErrAutoPortNotFound
 		}
 	}
 
-	sio.mode = serial.Mode{
+	mode := serial.Mode{
 		BaudRate: config.ConnectionInfo.BaudRate,
 		DataBits: 8,
 		StopBits: serial.OneStopBit,
 	}
 
 	sio.logger.Debugw("Attempting serial connection",
-		"comPort", sio.comPortToUse,
-		"baudRate", sio.mode.BaudRate)
+		"comPort", comPort,
+		"baudRate", mode.BaudRate)
 
-	port, err := serial.Open(sio.comPortToUse, &sio.mode)
+	port, err := serial.Open(comPort, &mode)
 
 	if err != nil {
 		// might need a user notification here, TBD
 		sio.logger.Debugw("Failed to open serial connection", "error", err)
-		return fmt.Errorf("open serial connection: %w", err)
+		return serialConn{}, fmt.Errorf("open serial connection: %w", err)
 	}
 
 	// actually, this sets timeout to 0x7FFFFFFE instead of 0xFFFFFFFE
@@ -160,17 +163,90 @@ func (sio *SerialIO) connect() error {
 			sio.logger.Warnw("Failed to close serial connection", "error", closeErr)
 		}
 
-		return fmt.Errorf("set read timeout: %w", err)
+		return serialConn{}, fmt.Errorf("set read timeout: %w", err)
 	}
 
-	sio.port = port
-	sio.connected.Store(true)
+	return serialConn{
+		port:     port,
+		comPort:  comPort,
+		connInfo: config.ConnectionInfo,
+	}, nil
+}
 
-	return nil
+func (sio *SerialIO) onUp(conn serialConn) {
+	sio.stateLock.Lock()
+	sio.comPortToUse = conn.comPort
+	sio.stateLock.Unlock()
+
+	if sio.deej.config.Values().ConnectionInfo != conn.connInfo {
+		sio.logger.Info("Connection parameters changed while connecting, renewing connection")
+		sio.reconnector.Reconnect(errors.New("connection parameters changed during dial"))
+		return
+	}
+
+	sio.sendStateChangeEvent(true)
+
+	sio.logger.Named(strings.ToLower(conn.comPort)).Infow("Connected")
+
+	connectedTitle := sio.deej.localizer.MustLocalize(&i18n.LocalizeConfig{
+		DefaultMessage: &i18n.Message{
+			ID:    "ComPortConnectedNotificationTitle",
+			Other: "Connected to {{.ComPort}}.",
+		},
+		TemplateData: map[string]string{
+			"ComPort": conn.comPort,
+		},
+	})
+	connectedDescription := sio.deej.localizer.MustLocalize(&i18n.LocalizeConfig{
+		DefaultMessage: &i18n.Message{
+			ID:    "ComPortConnectedNotificationDescription",
+			Other: "Succesfully connected to deej.",
+		},
+	})
+	sio.deej.notifier.Notify(connectedTitle, connectedDescription)
+}
+
+func (sio *SerialIO) onDown(err error) {
+	sio.logger.Warnw("Read line error", "err", err)
+	sio.logger.Warn("Closing serial port")
+
+	disconnectedTitle := sio.deej.localizer.MustLocalize(&i18n.LocalizeConfig{
+		DefaultMessage: &i18n.Message{
+			ID:    "ComPortDisconnectedNotificationTitle",
+			Other: "Disconnected from {{.ComPort}} due to an error.",
+		},
+		TemplateData: map[string]string{
+			"ComPort": sio.CurrentComPort(),
+		},
+	})
+	disconnectedDescription := sio.deej.localizer.MustLocalize(&i18n.LocalizeConfig{
+		DefaultMessage: &i18n.Message{
+			ID:    "ComPortDisconnectedNotificationDescription",
+			Other: "Trying to reconnect.",
+		},
+	})
+	sio.deej.notifier.Notify(disconnectedTitle, disconnectedDescription)
+}
+
+func (sio *SerialIO) close(conn serialConn) {
+	if err := conn.port.Close(); err != nil {
+		sio.logger.Warnw("Failed to close serial connection", "error", err)
+	} else {
+		sio.logger.Info("Serial connection closed")
+	}
+
+	sio.sendStateChangeEvent(false)
 }
 
 func (sio *SerialIO) GetState() bool {
-	return sio.connected.Load()
+	return sio.reconnector.Connected()
+}
+
+func (sio *SerialIO) CurrentComPort() string {
+	sio.stateLock.Lock()
+	defer sio.stateLock.Unlock()
+
+	return sio.comPortToUse
 }
 
 func (sio *SerialIO) CurrentSliderValues() []int {
@@ -182,22 +258,19 @@ func (sio *SerialIO) CurrentSliderValues() []int {
 
 // Start attempts to connect to our arduino chip
 func (sio *SerialIO) Start() {
-	sio.stopChannel = make(chan struct{})
-	sio.logger.Info("Serial starting")
+	config := sio.deej.config.Values()
+	sio.logger.Infow("Trying serial connection",
+		"port", config.ConnectionInfo.COMPort,
+		"vid", fmt.Sprintf("%X", config.AutoSearchVIDPID.VID),
+		"pid", fmt.Sprintf("%X", config.AutoSearchVIDPID.PID),
+	)
 
-	// wg.Add must happen before the goroutine starts, not inside it,
-	// so that a quick Stop can't call wg.Wait before the count is registered
-	sio.wg.Add(1)
-	go sio.managerLoop()
+	sio.reconnector.Start()
 }
 
 // Stop signals us to shut down our serial connection, if one is active
 func (sio *SerialIO) Stop() {
-	close(sio.stopChannel)
-
-	// Wait for all goroutines to finish
-	sio.wg.Wait()
-
+	sio.reconnector.Stop()
 	sio.logger.Info("Serial stopped")
 }
 
@@ -235,117 +308,39 @@ func (sio *SerialIO) setupOnConfigReload() {
 			sio.lastKnownNumSliders = 0
 			sio.stateLock.Unlock()
 
+			// if connection params have changed, ask the reconnector to
+			// renew the connection. when disconnected there's nothing to do:
+			// every dial attempt reads the current config anyway
+			conn, ok := sio.reconnector.Current()
+			if !ok {
+				continue
+			}
+
 			config := sio.deej.config.Values()
-			lastConnectionInfo := sio.lastConnectionInfo.Load()
 
-			// if connection params have changed, attempt to stop and start the connection
-			if lastConnectionInfo == nil || config.ConnectionInfo != *lastConnectionInfo {
-
+			if config.ConnectionInfo != conn.connInfo {
 				sio.logger.Info("Detected change in connection parameters, attempting to renew connection")
-				sio.Stop()
-
-				// let the connection close
-				time.Sleep(2 * time.Second)
-
-				sio.Start()
+				sio.reconnector.Reconnect(errors.New("connection parameters changed"))
 			}
 		}
 	}()
 }
 
-// manages serial connection and retries
-func (sio *SerialIO) managerLoop() {
-	defer sio.wg.Done()
+// watch reads lines off a single connection until it fails; closing the port
+// unblocks the pending read
+func (sio *SerialIO) watch(conn serialConn, errChannel chan<- error) {
+	logger := sio.logger.Named(strings.ToLower(conn.comPort))
 
-	config := sio.deej.config.Values()
-	sio.logger.Infow("Trying serial connection",
-		"port", config.ConnectionInfo.COMPort,
-		"vid", fmt.Sprintf("%X", config.AutoSearchVIDPID.VID),
-		"pid", fmt.Sprintf("%X", config.AutoSearchVIDPID.PID),
-	)
-
-	for {
-		err := sio.connect()
-		if err != nil {
-			sio.logger.Debugw("Serial connection error. Trying again...", "err", err)
-
-			select {
-			case <-sio.stopChannel:
-				sio.logger.Debug("managerLoop: stop signal")
-				return
-			case <-time.After(2 * time.Second):
-				continue
-			}
-		}
-
-		sio.sendStateChangeEvent(true)
-
-		namedLogger := sio.logger.Named(strings.ToLower(sio.comPortToUse))
-		namedLogger.Infow("Connected")
-
-		connectedTitle := sio.deej.localizer.MustLocalize(&i18n.LocalizeConfig{
-			DefaultMessage: &i18n.Message{
-				ID:    "ComPortConnectedNotificationTitle",
-				Other: "Connected to {{.ComPort}}.",
-			},
-			TemplateData: map[string]string{
-				"ComPort": sio.comPortToUse,
-			},
-		})
-		connectedDescription := sio.deej.localizer.MustLocalize(&i18n.LocalizeConfig{
-			DefaultMessage: &i18n.Message{
-				ID:    "ComPortConnectedNotificationDescription",
-				Other: "Succesfully connected to deej.",
-			},
-		})
-		sio.deej.notifier.Notify(connectedTitle, connectedDescription)
-
-		errChannel := make(chan error, 1)
-		sio.wg.Add(1)
-		go sio.readLoop(namedLogger, errChannel)
-
-		select {
-		case err := <-errChannel:
-			sio.logger.Warnw("Read line error", "err", err)
-			sio.logger.Warn("Closing serial port")
-
-			disconnectedTitle := sio.deej.localizer.MustLocalize(&i18n.LocalizeConfig{
-				DefaultMessage: &i18n.Message{
-					ID:    "ComPortDisconnectedNotificationTitle",
-					Other: "Disconnected from {{.ComPort}} due to an error.",
-				},
-				TemplateData: map[string]string{
-					"ComPort": sio.comPortToUse,
-				},
-			})
-			disconnectedDescription := sio.deej.localizer.MustLocalize(&i18n.LocalizeConfig{
-				DefaultMessage: &i18n.Message{
-					ID:    "ComPortDisconnectedNotificationDescription",
-					Other: "Trying to reconnect.",
-				},
-			})
-			sio.deej.notifier.Notify(disconnectedTitle, disconnectedDescription)
-
-			_ = sio.closePort()
-			time.Sleep(2 * time.Second)
-			continue
-
-		case <-sio.stopChannel:
-			sio.logger.Debug("managerLoop: stop signal")
-			_ = sio.closePort()
-			return
-		}
-	}
-}
-
-func (sio *SerialIO) readLoop(logger *zap.SugaredLogger, errChannel chan<- error) {
-	defer sio.wg.Done()
-
-	reader := bufio.NewReader(sio.port)
+	reader := bufio.NewReader(conn.port)
 	for {
 		line, err := reader.ReadString('\n')
 		if err != nil {
-			errChannel <- fmt.Errorf("read error: %w", err)
+			// non-blocking send: Reconnect may have already filled this
+			// generation's buffer, and nothing drains it after teardown
+			select {
+			case errChannel <- fmt.Errorf("read error: %w", err):
+			default:
+			}
 			return
 		}
 
@@ -355,23 +350,6 @@ func (sio *SerialIO) readLoop(logger *zap.SugaredLogger, errChannel chan<- error
 
 		sio.handleLine(logger, line)
 	}
-}
-
-func (sio *SerialIO) closePort() error {
-	if sio.port == nil {
-		return fmt.Errorf("port is already closed")
-	}
-
-	if err := sio.port.Close(); err != nil {
-		sio.logger.Warnw("Failed to close serial connection", "error", err)
-		return fmt.Errorf("close serial connection: %w", err)
-	}
-
-	sio.logger.Info("Serial connection closed")
-	sio.port = nil
-	sio.connected.Store(false)
-	sio.sendStateChangeEvent(false)
-	return nil
 }
 
 func (sio *SerialIO) handleLine(logger *zap.SugaredLogger, line string) {
