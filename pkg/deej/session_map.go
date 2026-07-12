@@ -2,6 +2,7 @@ package deej
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 
@@ -445,6 +446,22 @@ func (m *sessionMap) getSessionCount() int {
 	}
 
 	return count
+}
+
+// sessionKeys returns a sorted copy of the current session keys, used by the
+// settings GUI for slider mapping suggestions
+func (m *sessionMap) sessionKeys() []string {
+	m.lock.Lock()
+	defer m.lock.Unlock()
+
+	keys := make([]string, 0, len(m.m))
+	for key := range m.m {
+		keys = append(keys, key)
+	}
+
+	sort.Strings(keys)
+
+	return keys
 }
 
 func (m *sessionMap) String() string {

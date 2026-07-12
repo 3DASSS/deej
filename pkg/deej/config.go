@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -69,6 +70,13 @@ type CanonicalConfig struct {
 
 	userConfig     *viper.Viper
 	internalConfig *viper.Viper
+
+	// guards viper access between the file watcher and the settings GUI
+	viperLock sync.Mutex
+
+	// unix-nano timestamp of the last GUI-initiated config write, used to
+	// suppress the file watcher event caused by our own save
+	lastSelfWrite atomic.Int64
 
 	configPath string
 }
@@ -180,6 +188,9 @@ func NewConfig(logger *zap.SugaredLogger, notifier notify.Notifier, configPath s
 
 // Load reads deej's config files from disk and tries to parse them
 func (cc *CanonicalConfig) Load(localizer *i18n.Localizer) error {
+	cc.viperLock.Lock()
+	defer cc.viperLock.Unlock()
+
 	cc.logger.Debugw("Loading config", "path", cc.configPath)
 
 	// make sure it exists
@@ -296,6 +307,13 @@ func (cc *CanonicalConfig) WatchConfigFileChanges(localizer *i18n.Localizer) {
 		// viper offers no way to unregister the callback safely, so once we're
 		// stopped just ignore any further events
 		if cc.watcherStopped.Load() {
+			return
+		}
+
+		// ignore events caused by a GUI save; it already loaded and applied
+		// the new config synchronously, and shows its own confirmation
+		if time.Since(time.Unix(0, cc.lastSelfWrite.Load())) < selfWriteSuppressWindow {
+			cc.logger.Debug("Ignoring config file event caused by GUI save")
 			return
 		}
 
