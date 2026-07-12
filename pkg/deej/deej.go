@@ -34,6 +34,7 @@ type Deej struct {
 	obs       *OBSClient
 	bundle    *i18n.Bundle
 	localizer *i18n.Localizer
+	tray      trayState
 
 	stopChannel chan bool
 	version     string

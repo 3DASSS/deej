@@ -1,15 +1,26 @@
 package deej
 
 import (
+	"io/fs"
+	"log/slog"
 	"strconv"
 	"strings"
+	"time"
 
-	"fyne.io/systray"
 	"github.com/nicksnyder/go-i18n/v2/i18n"
+	"github.com/wailsapp/wails/v3/pkg/application"
+	"github.com/wailsapp/wails/v3/pkg/events"
 
+	"github.com/nik9play/deej/frontend"
 	"github.com/nik9play/deej/pkg/deej/util"
 	"github.com/nik9play/deej/pkg/icon"
 )
+
+// trayState holds the wails application that powers the tray icon and settings window
+type trayState struct {
+	app          *application.App
+	shutdownDone chan struct{}
+}
 
 func getConfigItemText(d *Deej) (string, string) {
 	configTitle := d.localizer.MustLocalize(&i18n.LocalizeConfig{
@@ -131,135 +142,155 @@ func getSessionsCountString(d *Deej) string {
 func (d *Deej) initializeTray(onDone func()) {
 	logger := d.logger.Named("tray")
 
-	onReady := func() {
+	d.tray.shutdownDone = make(chan struct{})
+
+	dist, err := fs.Sub(frontend.Dist, "dist")
+	if err != nil {
+		logger.Errorw("Failed to open frontend assets", "error", err)
+	}
+
+	app := application.New(application.Options{
+		Name: "deej",
+		Icon: icon.TrayDeejLogo,
+		// deej sets up its own interrupt handler
+		DisableDefaultSignalHandler: true,
+		// keep running with zero open windows; the tray is the app
+		Windows: application.WindowsOptions{DisableQuitOnLastWindowClosed: true},
+		Linux:   application.LinuxOptions{DisableQuitOnLastWindowClosed: true},
+		Assets:  application.AssetOptions{Handler: application.AssetFileServerFS(dist)},
+		PostShutdown: func() {
+			close(d.tray.shutdownDone)
+		},
+		LogLevel: slog.LevelError,
+	})
+	d.tray.app = app
+
+	tray := app.SystemTray.New()
+	tray.SetIcon(icon.TrayDeejLogo)
+	tray.SetTooltip("deej")
+
+	setTooltip := func() {
+		title := "deej\n" + getStatusItemTitle(d)
+		if d.serial.GetState() {
+			title += "\n" + getValuesString(d)
+		}
+		tray.SetTooltip(title)
+	}
+
+	menu := app.NewMenu()
+
+	settingsTitle, _ := getSettingsItemText(d)
+	settings := menu.AddSubmenu(settingsTitle)
+
+	configTitle, _ := getConfigItemText(d)
+	settings.Add(configTitle).OnClick(func(*application.Context) {
+		logger.Info("Edit config menu item clicked, opening config for editing")
+
+		if err := util.OpenExternal(logger, d.config.configPath); err != nil {
+			logger.Warnw("Failed to open config file for editing", "error", err)
+		}
+	})
+
+	if !util.Linux() {
+		autostartTitle, _ := getAutostartItemText(d)
+		settings.AddCheckbox(autostartTitle, util.GetAutostartState()).OnClick(func(ctx *application.Context) {
+			if err := util.SetAutostartState(ctx.ClickedMenuItem().Checked()); err != nil {
+				logger.Warnw("Failed to set autostart state", "error", err)
+			}
+		})
+	}
+
+	menu.AddSeparator()
+
+	statusInfo := menu.Add(getStatusItemTitle(d)).SetEnabled(false)
+
+	valuesInfo := menu.Add("...").SetEnabled(false).SetHidden(true)
+
+	setValuesInfo := func() {
+		if d.serial.GetState() {
+			valuesInfo.SetLabel(getValuesString(d))
+			valuesInfo.SetHidden(false)
+		} else {
+			valuesInfo.SetHidden(true)
+		}
+	}
+
+	sessionsInfo := menu.Add(getSessionsCountString(d)).SetEnabled(false)
+
+	if d.version != "" {
+		menu.Add(d.version).SetEnabled(false)
+	}
+
+	menu.AddSeparator()
+
+	quitTitle, _ := getQuitItemText(d)
+	menu.Add(quitTitle).OnClick(func(*application.Context) {
+		logger.Info("Quit menu item clicked, stopping")
+
+		d.signalStop()
+	})
+
+	tray.SetMenu(menu)
+
+	app.Event.OnApplicationEvent(events.Common.ApplicationStarted, func(*application.ApplicationEvent) {
 		logger.Debug("Tray instance ready")
 
-		systray.SetTemplateIcon(icon.TrayDeejLogo, icon.TrayDeejLogo)
-
-		systray.SetTooltip("deej")
-
-		setTooltip := func() {
-			title := "deej\n" + getStatusItemTitle(d)
-			if d.serial.GetState() {
-				title += "\n" + getValuesString(d)
-			}
-			systray.SetTooltip(title)
-		}
 		setTooltip()
-
-		settingsTitle, settingsDescription := getSettingsItemText(d)
-		settings := systray.AddMenuItem(settingsTitle, settingsDescription)
-		settings.SetIcon(icon.EditConfigIcon)
-
-		configTitle, configDescription := getConfigItemText(d)
-		editConfig := settings.AddSubMenuItem(configTitle, configDescription)
-
-		autostartTitle, autostartDescription := getAutostartItemText(d)
-		autostart := settings.AddSubMenuItemCheckbox(autostartTitle, autostartDescription, util.GetAutostartState())
-
-		if util.Linux() {
-			autostart.Hide()
-		}
-
-		systray.AddSeparator()
-
-		statusInfo := systray.AddMenuItem(getStatusItemTitle(d), "")
-		statusInfo.Disable()
-
-		valuesInfo := systray.AddMenuItem("...", "")
-		valuesInfo.Disable()
-		valuesInfo.Hide()
-
-		setValuesInfo := func() {
-			if d.serial.GetState() {
-				valuesInfo.SetTitle(getValuesString(d))
-				valuesInfo.Show()
-			} else {
-				valuesInfo.Hide()
-			}
-		}
-		setValuesInfo()
-
-		sessionsInfo := systray.AddMenuItem(getSessionsCountString(d), "")
-		sessionsInfo.Disable()
-
-		setSessionsInfo := func() {
-			sessionsInfo.SetTitle(getSessionsCountString(d))
-		}
-
-		if d.version != "" {
-			versionInfo := systray.AddMenuItem(d.version, "")
-			versionInfo.Disable()
-		}
-
-		systray.AddSeparator()
-
-		quitTitle, quitDescription := getQuitItemText(d)
-		quit := systray.AddMenuItem(quitTitle, quitDescription)
 
 		sliderMovedChannel := d.serial.SubscribeToSliderMoveEvents()
 		stateChangeChannel := d.serial.SubscribeToStateChangeEvent()
 		sessionCountChangeChannel := d.sessions.SubscribeToSessionCountChange()
 
-		// wait on things to happen
+		// wait on things to happen; menu item mutations must run on the wails main thread
 		go func() {
 			for {
 				select {
 				// slider moved
 				case <-sliderMovedChannel:
 					setTooltip()
-					setValuesInfo()
+					application.InvokeAsync(setValuesInfo)
 
 				// connection state changed
 				case <-stateChangeChannel:
 					setTooltip()
-					setValuesInfo()
-					statusInfo.SetTitle(getStatusItemTitle(d))
+					application.InvokeAsync(func() {
+						setValuesInfo()
+						statusInfo.SetLabel(getStatusItemTitle(d))
+					})
 
 				// session count changed
 				case <-sessionCountChangeChannel:
-					setSessionsInfo()
-
-				// quit
-				case <-quit.ClickedCh:
-					logger.Info("Quit menu item clicked, stopping")
-
-					d.signalStop()
-
-				// edit config
-				case <-editConfig.ClickedCh:
-					logger.Info("Edit config menu item clicked, opening config for editing")
-
-					if err := util.OpenExternal(logger, d.config.configPath); err != nil {
-						logger.Warnw("Failed to open config file for editing", "error", err)
-					}
-
-				case <-autostart.ClickedCh:
-					util.SetAutostartState(!util.GetAutostartState())
-					if util.GetAutostartState() {
-						autostart.Check()
-					} else {
-						autostart.Uncheck()
-					}
-
+					application.InvokeAsync(func() {
+						sessionsInfo.SetLabel(getSessionsCountString(d))
+					})
 				}
 			}
 		}()
 
 		// actually start the main runtime
 		go onDone()
-	}
-
-	onExit := func() {
-		logger.Debug("Tray exited")
-	}
+	})
 
 	// start the tray icon
 	logger.Debug("Running in tray")
-	systray.Run(onReady, onExit)
+	if err := app.Run(); err != nil {
+		logger.Errorw("Wails application exited with error", "error", err)
+	}
 }
 
 func (d *Deej) stopTray() {
+	if d.tray.app == nil {
+		return
+	}
+
 	d.logger.Debug("Quitting tray")
-	systray.Quit()
+	d.tray.app.Quit()
+
+	// wait for wails to tear down the tray icon and any open windows before
+	// run() exits the process, to avoid leaving a ghost tray icon behind
+	select {
+	case <-d.tray.shutdownDone:
+	case <-time.After(5 * time.Second):
+		d.logger.Warn("Timed out waiting for tray shutdown")
+	}
 }
