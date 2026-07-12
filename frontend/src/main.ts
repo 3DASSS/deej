@@ -2,7 +2,7 @@ import { mount } from "svelte";
 import App from "./App.svelte";
 import { initI18n } from "./lib/i18n";
 import { AppInfoDTO, SettingsService } from "../bindings/github.com/nik9play/deej/pkg/deej";
-import "./style.css";
+import "./app.css";
 
 let appInfo: AppInfoDTO | null = null;
 try {

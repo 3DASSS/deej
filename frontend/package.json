@@ -11,13 +11,17 @@
     "check": "svelte-check --tsconfig ./tsconfig.json"
   },
   "dependencies": {
-    "@wailsio/runtime": "latest"
+    "@lucide/svelte": "^1.24.0",
+    "@wailsio/runtime": "latest",
+    "bits-ui": "^2.18.1"
   },
   "devDependencies": {
     "@sveltejs/vite-plugin-svelte": "^7.0.0",
+    "@tailwindcss/vite": "^4.3.2",
     "@tsconfig/svelte": "^5.0.8",
     "svelte": "^5.46.4",
     "svelte-check": "^4.4.8",
+    "tailwindcss": "^4.3.2",
     "tslib": "^2.6.2",
     "typescript": "^5.2.2",
     "vite": "^8.0.5"

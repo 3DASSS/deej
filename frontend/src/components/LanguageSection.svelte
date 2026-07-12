@@ -6,10 +6,10 @@
 </script>
 
 <section class="card">
-  <h2>{t("language")}</h2>
+  <h2 class="mb-3 text-sm font-semibold">{t("language")}</h2>
 
-  <div class="field" style="max-width: 340px;">
-    <select id="language" aria-label={t("language")} bind:value={settings.language}>
+  <div class="flex max-w-xs flex-col gap-1">
+    <select id="language" class="input" aria-label={t("language")} bind:value={settings.language}>
       <option value="auto">{t("languageAuto")}</option>
       <option value="en">English</option>
       <option value="ru">Русский</option>

@@ -1,0 +1,113 @@
+@import "tailwindcss";
+
+/* theme tokens; light values with dark overrides via prefers-color-scheme,
+   exposed to tailwind through @theme inline */
+:root {
+  --ui-surface: #f4f4f6;
+  --ui-card: #ffffff;
+  --ui-body: #1c1c22;
+  --ui-muted: #6b6b76;
+  --ui-edge: #d9d9e0;
+  --ui-accent: #4a6cf7;
+  --ui-on-accent: #ffffff;
+  --ui-danger: #d64550;
+  --ui-success: #2e9e5b;
+  --ui-field: #ffffff;
+  --ui-chip: #eceef8;
+  --ui-track: #e2e2e8;
+
+  color-scheme: light dark;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --ui-surface: #1e1e24;
+    --ui-card: #27272f;
+    --ui-body: #e8e8ec;
+    --ui-muted: #9a9aa6;
+    --ui-edge: #3a3a44;
+    --ui-accent: #6f8bff;
+    --ui-on-accent: #ffffff;
+    --ui-danger: #ff6b75;
+    --ui-success: #4fc47f;
+    --ui-field: #1e1e24;
+    --ui-chip: #33333e;
+    --ui-track: #33333e;
+  }
+}
+
+@theme inline {
+  --color-surface: var(--ui-surface);
+  --color-card: var(--ui-card);
+  --color-body: var(--ui-body);
+  --color-muted: var(--ui-muted);
+  --color-edge: var(--ui-edge);
+  --color-accent: var(--ui-accent);
+  --color-on-accent: var(--ui-on-accent);
+  --color-danger: var(--ui-danger);
+  --color-success: var(--ui-success);
+  --color-field: var(--ui-field);
+  --color-chip: var(--ui-chip);
+  --color-track: var(--ui-track);
+
+  --font-sans: "Segoe UI", system-ui, -apple-system, sans-serif;
+}
+
+@layer base {
+  html,
+  body {
+    height: 100%;
+    overflow: hidden;
+  }
+
+  body {
+    @apply bg-surface font-sans text-sm text-body select-none;
+    cursor: default;
+  }
+
+  #app {
+    height: 100dvh;
+    display: flex;
+    flex-direction: column;
+  }
+
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: var(--ui-edge);
+    border-radius: 4px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+}
+
+@layer components {
+  .input {
+    @apply w-full rounded-md border border-edge bg-field px-2.5 py-1.5 text-sm text-body focus-visible:outline-2 focus-visible:outline-accent;
+  }
+
+  .label {
+    @apply text-[13px] font-semibold;
+  }
+
+  .hint {
+    @apply text-xs text-muted;
+  }
+
+  .btn {
+    @apply cursor-pointer rounded-md border border-edge bg-card px-3.5 py-1.5 text-sm text-body transition-colors hover:border-accent focus-visible:outline-2 focus-visible:outline-accent disabled:cursor-default disabled:opacity-50;
+  }
+
+  .btn-primary {
+    @apply border-accent bg-accent font-semibold text-on-accent hover:border-accent;
+  }
+
+  .card {
+    @apply rounded-lg border border-edge bg-card p-4;
+  }
+}

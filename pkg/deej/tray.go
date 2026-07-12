@@ -356,10 +356,11 @@ func (d *Deej) openSettingsWindow() {
 	d.tray.app.Window.NewWithOptions(application.WebviewWindowOptions{
 		Name:      settingsWindowName,
 		Title:     "deej - " + settingsTitle,
-		Width:     860,
-		Height:    680,
-		MinWidth:  600,
-		MinHeight: 440,
+		Width:     640,
+		Height:    480,
+		MinWidth:  460,
+		MinHeight: 380,
+		Frameless: true,
 		URL:       "/",
 	})
 }
