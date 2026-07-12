@@ -23,6 +23,13 @@ jobs:
         with:
           go-version: "1.25.7"
 
+      # the wails linux backend is cgo and needs GTK/WebKitGTK headers
+      - name: Install GTK dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-4-dev libwebkitgtk-6.0-dev
+
       - name: Run tests
         run: go test ./...
 
@@ -39,6 +46,13 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version: "1.25.7"
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
 
       - name: Build deej (amd64)
         run: scripts/windows/build-all.bat
@@ -70,9 +84,18 @@ jobs:
           name: deej-windows
           path: build/
 
+  # linux builds are cgo (wails GTK backend), so each architecture builds
+  # natively on a matching runner instead of cross-compiling
   build-linux:
-    name: Build (linux)
-    runs-on: ubuntu-latest
+    name: Build (linux ${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-latest
+          - arch: arm64
+            runner: ubuntu-24.04-arm
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -84,28 +107,30 @@ jobs:
         with:
           go-version: "1.25.7"
 
-      - name: Build deej (amd64)
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install GTK dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-4-dev libwebkitgtk-6.0-dev
+
+      - name: Build deej
         run: scripts/linux/build-all.sh
 
-      - name: Rename binaries (amd64)
+      - name: Rename binaries
         run: |
-          mv build/deej-release build/deej-linux-amd64
-          mv build/deej-dev build/deej-linux-amd64-dev
-
-      - name: Build deej (arm64)
-        run: scripts/linux/build-all.sh
-        env:
-          GOARCH: arm64
-
-      - name: Rename binaries (arm64)
-        run: |
-          mv build/deej-release build/deej-linux-arm64
-          mv build/deej-dev build/deej-linux-arm64-dev
+          mv build/deej-release build/deej-linux-${{ matrix.arch }}
+          mv build/deej-dev build/deej-linux-${{ matrix.arch }}-dev
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: deej-linux
+          name: deej-linux-${{ matrix.arch }}
           path: build/
 
   release:

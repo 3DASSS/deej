@@ -27,6 +27,19 @@ if [ "$(go env GOOS)" = "windows" ]; then
     GUIFLAG="-H=windowsgui "
 fi
 
+# Build the settings GUI frontend (embedded into the binary)
+echo "Building frontend..."
+(
+    cd frontend || exit 1
+    if [ ! -d node_modules ]; then
+        npm ci || exit 1
+    fi
+    npm run build || exit 1
+) || {
+    echo 'Error: frontend build failed.'
+    exit 1
+}
+
 # Get git commit and version tag
 GIT_COMMIT=$(git rev-list -1 --abbrev-commit HEAD)
 VERSION_TAG=$(git describe --tags --always)

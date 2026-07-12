@@ -32,6 +32,22 @@ IF DEFINED NEED_RSRC (
     go generate %DEEJ_ROOT%/...
 )
 
+ECHO Building frontend...
+PUSHD "%DEEJ_ROOT%\frontend"
+IF NOT EXIST node_modules (
+    CALL npm ci
+    IF ERRORLEVEL 1 (
+        POPD
+        GOTO BUILDERROR
+    )
+)
+CALL npm run build
+IF ERRORLEVEL 1 (
+    POPD
+    GOTO BUILDERROR
+)
+POPD
+
 ECHO Embedding build-time parameters:
 ECHO - gitCommit %GIT_COMMIT%
 ECHO - versionTag %VERSION_TAG%
