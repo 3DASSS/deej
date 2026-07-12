@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/nicksnyder/go-i18n/v2/i18n"
@@ -20,7 +21,12 @@ import (
 type trayState struct {
 	app          *application.App
 	shutdownDone chan struct{}
+
+	// guards against concurrent settings window creation
+	settingsLock sync.Mutex
 }
+
+const settingsWindowName = "deej-settings"
 
 func getConfigItemText(d *Deej) (string, string) {
 	configTitle := d.localizer.MustLocalize(&i18n.LocalizeConfig{
@@ -54,6 +60,23 @@ func getSettingsItemText(d *Deej) (string, string) {
 	})
 
 	return configTitle, configDescription
+}
+
+func getOpenSettingsItemText(d *Deej) (string, string) {
+	openSettingsTitle := d.localizer.MustLocalize(&i18n.LocalizeConfig{
+		DefaultMessage: &i18n.Message{
+			ID:    "OpenSettingsTitle",
+			Other: "Open settings",
+		},
+	})
+	openSettingsDescription := d.localizer.MustLocalize(&i18n.LocalizeConfig{
+		DefaultMessage: &i18n.Message{
+			ID:    "OpenSettingsDescription",
+			Other: "Open the settings window",
+		},
+	})
+
+	return openSettingsTitle, openSettingsDescription
 }
 
 func getAutostartItemText(d *Deej) (string, string) {
@@ -185,6 +208,13 @@ func (d *Deej) initializeTray(onDone func()) {
 	settingsTitle, _ := getSettingsItemText(d)
 	settings := menu.AddSubmenu(settingsTitle)
 
+	openSettingsTitle, _ := getOpenSettingsItemText(d)
+	settings.Add(openSettingsTitle).OnClick(func(*application.Context) {
+		logger.Info("Open settings menu item clicked, opening settings window")
+
+		d.openSettingsWindow()
+	})
+
 	configTitle, _ := getConfigItemText(d)
 	settings.Add(configTitle).OnClick(func(*application.Context) {
 		logger.Info("Edit config menu item clicked, opening config for editing")
@@ -235,6 +265,10 @@ func (d *Deej) initializeTray(onDone func()) {
 
 	tray.SetMenu(menu)
 
+	tray.OnDoubleClick(func() {
+		d.openSettingsWindow()
+	})
+
 	app.Event.OnApplicationEvent(events.Common.ApplicationStarted, func(*application.ApplicationEvent) {
 		logger.Debug("Tray instance ready")
 
@@ -279,6 +313,31 @@ func (d *Deej) initializeTray(onDone func()) {
 	if err := app.Run(); err != nil {
 		logger.Errorw("Wails application exited with error", "error", err)
 	}
+}
+
+// openSettingsWindow creates a fresh settings window, or focuses the existing
+// one if it's already open. The window is fully destroyed when closed
+func (d *Deej) openSettingsWindow() {
+	d.tray.settingsLock.Lock()
+	defer d.tray.settingsLock.Unlock()
+
+	if win, ok := d.tray.app.Window.GetByName(settingsWindowName); ok {
+		win.Restore()
+		win.Focus()
+		return
+	}
+
+	settingsTitle, _ := getSettingsItemText(d)
+
+	d.tray.app.Window.NewWithOptions(application.WebviewWindowOptions{
+		Name:      settingsWindowName,
+		Title:     "deej - " + settingsTitle,
+		Width:     860,
+		Height:    680,
+		MinWidth:  600,
+		MinHeight: 440,
+		URL:       "/",
+	})
 }
 
 func (d *Deej) stopTray() {
