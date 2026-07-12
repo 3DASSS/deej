@@ -256,6 +256,32 @@ func (sio *SerialIO) CurrentSliderValues() []int {
 	return slices.Clone(sio.currentSliderValues)
 }
 
+// CurrentSliderPercentValues returns the current slider values as the 0..1
+// scalars the sessions receive (normalized and inversion-applied, mirroring
+// handleLine)
+func (sio *SerialIO) CurrentSliderPercentValues() []float32 {
+	config := sio.deej.config.Values()
+
+	sio.stateLock.Lock()
+	defer sio.stateLock.Unlock()
+
+	values := make([]float32, len(sio.currentSliderValues))
+	for i, raw := range sio.currentSliderValues {
+		if raw < 0 {
+			// sentinel value before the first full line is received
+			continue
+		}
+
+		value := util.NormalizeScalar(float32(raw) / 1023.0)
+		if config.InvertSliders {
+			value = 1 - value
+		}
+		values[i] = value
+	}
+
+	return values
+}
+
 // Start attempts to connect to our arduino chip
 func (sio *SerialIO) Start() {
 	config := sio.deej.config.Values()

@@ -28,6 +28,13 @@ type trayState struct {
 
 const settingsWindowName = "deej-settings"
 
+// wails events pushed to the settings window
+const (
+	eventSliders = "deej:sliders" // []float32, 0..1 per slider
+	eventState   = "deej:state"   // {connected bool, comPort string}
+	eventConfig  = "deej:config"  // no payload; config was (re)applied
+)
+
 func getConfigItemText(d *Deej) (string, string) {
 	configTitle := d.localizer.MustLocalize(&i18n.LocalizeConfig{
 		DefaultMessage: &i18n.Message{
@@ -277,6 +284,14 @@ func (d *Deej) initializeTray(onDone func()) {
 		sliderMovedChannel := d.serial.SubscribeToSliderMoveEvents()
 		stateChangeChannel := d.serial.SubscribeToStateChangeEvent()
 		sessionCountChangeChannel := d.sessions.SubscribeToSessionCountChange()
+		configReloadedChannel := d.config.SubscribeToChanges()
+
+		emitState := func() {
+			app.Event.Emit(eventState, map[string]any{
+				"connected": d.serial.GetState(),
+				"comPort":   d.serial.CurrentComPort(),
+			})
+		}
 
 		// wait on things to happen; menu item mutations must run on the wails main thread
 		go func() {
@@ -286,6 +301,7 @@ func (d *Deej) initializeTray(onDone func()) {
 				case <-sliderMovedChannel:
 					setTooltip()
 					application.InvokeAsync(setValuesInfo)
+					app.Event.Emit(eventSliders, d.serial.CurrentSliderPercentValues())
 
 				// connection state changed
 				case <-stateChangeChannel:
@@ -294,12 +310,20 @@ func (d *Deej) initializeTray(onDone func()) {
 						setValuesInfo()
 						statusInfo.SetLabel(getStatusItemTitle(d))
 					})
+					emitState()
+					app.Event.Emit(eventSliders, d.serial.CurrentSliderPercentValues())
 
 				// session count changed
 				case <-sessionCountChangeChannel:
 					application.InvokeAsync(func() {
 						sessionsInfo.SetLabel(getSessionsCountString(d))
 					})
+
+				// config applied (GUI save or manual edit); this case must always
+				// be drained, since onConfigReloaded blocks on every consumer
+				case <-configReloadedChannel:
+					app.Event.Emit(eventConfig)
+					app.Event.Emit(eventSliders, d.serial.CurrentSliderPercentValues())
 				}
 			}
 		}()

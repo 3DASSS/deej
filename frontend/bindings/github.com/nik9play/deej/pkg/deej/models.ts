@@ -193,7 +193,48 @@ export class SliderMappingEntry {
     }
 }
 
+/**
+ * StatusDTO describes the live connection state for the settings GUI
+ */
+export class StatusDTO {
+    "connected": boolean;
+    "comPort": string;
+
+    /**
+     * 0..1, as sessions receive them
+     */
+    "sliderValues": number[];
+
+    /** Creates a new StatusDTO instance. */
+    constructor($$source: Partial<StatusDTO> = {}) {
+        if (!("connected" in $$source)) {
+            this["connected"] = false;
+        }
+        if (!("comPort" in $$source)) {
+            this["comPort"] = "";
+        }
+        if (!("sliderValues" in $$source)) {
+            this["sliderValues"] = [];
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new StatusDTO instance from a string or object.
+     */
+    static createFrom($$source: any = {}): StatusDTO {
+        const $$createField2_0 = $$createType3;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("sliderValues" in $$parsedSource) {
+            $$parsedSource["sliderValues"] = $$createField2_0($$parsedSource["sliderValues"]);
+        }
+        return new StatusDTO($$parsedSource as Partial<StatusDTO>);
+    }
+}
+
 // Private type creation functions
 const $$createType0 = $Create.Array($Create.Any);
 const $$createType1 = SliderMappingEntry.createFrom;
 const $$createType2 = $Create.Array($$createType1);
+const $$createType3 = $Create.Array($Create.Any);

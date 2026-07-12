@@ -44,11 +44,21 @@ export function GetSettings(): $CancellablePromise<$models.SettingsDTO> {
 }
 
 /**
+ * GetStatus returns the current serial connection state and slider values,
+ * so the settings window doesn't have to wait for the first live event
+ */
+export function GetStatus(): $CancellablePromise<$models.StatusDTO> {
+    return $Call.ByID(4223089242).then(($result: any) => {
+        return $$createType3($result);
+    });
+}
+
+/**
  * ListSerialPorts enumerates the serial ports available on this machine
  */
 export function ListSerialPorts(): $CancellablePromise<$models.SerialPortDTO[]> {
     return $Call.ByID(102515344).then(($result: any) => {
-        return $$createType4($result);
+        return $$createType5($result);
     });
 }
 
@@ -64,5 +74,6 @@ export function SaveSettings(dto: $models.SettingsDTO): $CancellablePromise<void
 const $$createType0 = $models.AppInfoDTO.createFrom;
 const $$createType1 = $Create.Array($Create.Any);
 const $$createType2 = $models.SettingsDTO.createFrom;
-const $$createType3 = $models.SerialPortDTO.createFrom;
-const $$createType4 = $Create.Array($$createType3);
+const $$createType3 = $models.StatusDTO.createFrom;
+const $$createType4 = $models.SerialPortDTO.createFrom;
+const $$createType5 = $Create.Array($$createType4);

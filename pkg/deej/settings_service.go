@@ -32,6 +32,13 @@ type AppInfoDTO struct {
 	SpecialTargets   []string `json:"specialTargets"`
 }
 
+// StatusDTO describes the live connection state for the settings GUI
+type StatusDTO struct {
+	Connected    bool      `json:"connected"`
+	ComPort      string    `json:"comPort"`
+	SliderValues []float32 `json:"sliderValues"` // 0..1, as sessions receive them
+}
+
 // GetSettings returns the current contents of the user config file
 func (s *SettingsService) GetSettings() SettingsDTO {
 	return s.d.config.UserSettings()
@@ -58,6 +65,16 @@ func (s *SettingsService) GetAppInfo() AppInfoDTO {
 			specialTargetTransformPrefix + specialTargetCurrentFullscreenWindow,
 			specialTargetTransformPrefix + specialTargetAllUnmapped,
 		},
+	}
+}
+
+// GetStatus returns the current serial connection state and slider values,
+// so the settings window doesn't have to wait for the first live event
+func (s *SettingsService) GetStatus() StatusDTO {
+	return StatusDTO{
+		Connected:    s.d.serial.GetState(),
+		ComPort:      s.d.serial.CurrentComPort(),
+		SliderValues: s.d.serial.CurrentSliderPercentValues(),
 	}
 }
 

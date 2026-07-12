@@ -10,5 +10,6 @@ export {
     AppInfoDTO,
     SerialPortDTO,
     SettingsDTO,
-    SliderMappingEntry
+    SliderMappingEntry,
+    StatusDTO
 } from "./models.js";
