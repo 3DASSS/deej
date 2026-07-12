@@ -89,7 +89,7 @@ func getStatusItemTitle(d *Deej) string {
 				Other: "Connected to {{.ComPort}}",
 			},
 			TemplateData: map[string]string{
-				"ComPort": d.serial.comPortToUse,
+				"ComPort": d.serial.CurrentComPort(),
 			},
 		})
 	} else {
