@@ -9,22 +9,55 @@ import (
 
 	"github.com/jfreymuth/pulse/proto"
 	"go.uber.org/zap"
+
+	"github.com/nik9play/deej/pkg/reconnect"
 )
 
 const (
-	reconnectDelay = 2 * time.Second
-
 	// buffer size for the event work channel
 	paWorkChanSize = 512
+
+	// how often watch pings the server to catch silently dead connections
+	paKeepaliveInterval = 30 * time.Second
 )
+
+// paConn is one PulseAudio connection generation.
+type paConn struct {
+	client    *proto.Client
+	conn      net.Conn
+	closedCh  chan struct{}
+	closeOnce *sync.Once
+	logger    *zap.SugaredLogger
+}
+
+func (c paConn) forceClose() {
+	c.closeOnce.Do(func() { close(c.closedCh) })
+}
+
+// request performs one round-trip on this connection
+func (c paConn) request(req proto.RequestArgs, rpl proto.Reply) error {
+	err := c.client.Request(req, rpl)
+	if err == nil {
+		return nil
+	}
+
+	var protoErr proto.Error
+	if !errors.As(err, &protoErr) {
+		c.logger.Debugw("Transport-level request failure, marking connection closed", "error", err)
+		c.forceClose()
+	}
+
+	return err
+}
 
 type paSessionFinder struct {
 	logger        *zap.SugaredLogger
 	sessionLogger *zap.SugaredLogger
 
-	mu           sync.RWMutex
-	client       *proto.Client
-	conn         net.Conn
+	reconnector *reconnect.Reconnector[paConn]
+
+	// mu guards the session maps
+	mu           sync.Mutex
 	masterSink   *masterSession
 	masterSource *masterSession
 	sinkInputs   map[uint32]*paSession
@@ -33,8 +66,7 @@ type paSessionFinder struct {
 	namedSinks   map[uint32]*masterSession
 	namedSources map[uint32]*masterSession
 
-	// receives session events synchronously; set once by Start before any
-	// connection is made
+	// receives session events synchronously
 	handler SessionEventHandler
 	started bool
 
@@ -42,8 +74,7 @@ type paSessionFinder struct {
 	// preserving the order in which PulseAudio delivered the events
 	workChan chan func()
 
-	reconnectCh chan struct{}
-	stopCh      chan struct{}
+	stopCh chan struct{}
 }
 
 func newSessionFinder(logger *zap.SugaredLogger) (SessionFinder, error) {
@@ -54,15 +85,23 @@ func newSessionFinder(logger *zap.SugaredLogger) (SessionFinder, error) {
 		namedSinks:    make(map[uint32]*masterSession),
 		namedSources:  make(map[uint32]*masterSession),
 		workChan:      make(chan func(), paWorkChanSize),
-		reconnectCh:   make(chan struct{}, 1),
 		stopCh:        make(chan struct{}),
 	}
+
+	sf.reconnector = reconnect.New(reconnect.Options[paConn]{
+		Logger: sf.logger,
+		Dial:   sf.dial,
+		Watch:  sf.watch,
+		Close:  sf.close,
+		OnUp:   sf.onUp,
+		OnDown: sf.onDown,
+	})
 
 	sf.logger.Debug("Created event-driven PA session finder")
 	return sf, nil
 }
 
-// Start begins session discovery, delivering events synchronously to handler
+// Begins session discovery, delivering events synchronously to handler.
 func (sf *paSessionFinder) Start(handler SessionEventHandler) error {
 	if sf.started {
 		return errors.New("session finder already started")
@@ -70,12 +109,10 @@ func (sf *paSessionFinder) Start(handler SessionEventHandler) error {
 	sf.started = true
 	sf.handler = handler
 
-	if err := sf.connect(); err != nil {
-		return err
-	}
-
+	// the worker must be running before the first connection is made, since
+	// onUp queues the initial enumeration on it
 	go sf.eventWorker()
-	go sf.connectionManager()
+	sf.reconnector.Start()
 
 	return nil
 }
@@ -104,41 +141,122 @@ func (sf *paSessionFinder) dispatchWork(fn func()) {
 	}
 }
 
-func (sf *paSessionFinder) connectionManager() {
+// dial connects to PulseAudio and completes the handshake (client name,
+// event subscription) without touching any shared state - the reconnector
+// decides whether to adopt the returned connection
+func (sf *paSessionFinder) dial() (paConn, error) {
+	client, conn, err := proto.Connect("")
+	if err != nil {
+		return paConn{}, fmt.Errorf("connect to PulseAudio: %w", err)
+	}
+
+	newConn := paConn{
+		client:    client,
+		conn:      conn,
+		closedCh:  make(chan struct{}),
+		closeOnce: &sync.Once{},
+		logger:    sf.logger,
+	}
+
+	// the callback belongs to this connection only: subscription events are
+	// dispatched to the shared work queue, but a ConnectionClosed can only
+	// signal its own generation's closed channel, so a stale callback can't
+	// tear down a newer connection
+	client.Callback = func(msg any) {
+		switch v := msg.(type) {
+		case *proto.SubscribeEvent:
+			sf.handleSubscribeEvent(v)
+		case *proto.ConnectionClosed:
+			newConn.forceClose()
+		}
+	}
+
+	if err := client.Request(&proto.SetClientName{
+		Props: proto.PropList{"application.name": proto.PropListString("deej")},
+	}, &proto.SetClientNameReply{}); err != nil {
+		_ = conn.Close()
+		return paConn{}, fmt.Errorf("set client name: %w", err)
+	}
+
+	if err := client.Request(&proto.Subscribe{
+		Mask: proto.SubscriptionMaskSinkInput | proto.SubscriptionMaskServer | proto.SubscriptionMaskSink | proto.SubscriptionMaskSource,
+	}, nil); err != nil {
+		_ = conn.Close()
+		return paConn{}, fmt.Errorf("subscribe to events: %w", err)
+	}
+
+	return newConn, nil
+}
+
+// watch blocks until this connection dies. detection has two prongs: the
+// connection's callback observing ConnectionClosed (which the pulse client
+// only fires on clean EOF), and transport-level request failures - including
+// the periodic keepalive here - marking the connection closed via forceClose
+func (sf *paSessionFinder) watch(conn paConn, errChannel chan<- error) {
+	keepalive := time.NewTicker(paKeepaliveInterval)
+	defer keepalive.Stop()
+
 	for {
 		select {
-		case <-sf.stopCh:
+		case <-conn.closedCh:
+			select {
+			case errChannel <- errors.New("PulseAudio connection closed"):
+			default:
+			}
 			return
-		case <-sf.reconnectCh:
-			sf.handleReconnect()
+
+		case <-keepalive.C:
+			// a failed keepalive marks the connection closed inside
+			// conn.request; the next loop iteration picks that up
+			_ = conn.request(&proto.GetServerInfo{}, &proto.GetServerInfoReply{})
 		}
 	}
 }
 
-func (sf *paSessionFinder) handleReconnect() {
+func (sf *paSessionFinder) close(conn paConn) {
+	_ = conn.conn.Close()
+
+	conn.forceClose()
+
+	sf.logger.Debug("Closed PulseAudio connection")
+}
+
+func (sf *paSessionFinder) onUp(_ paConn) {
+	sf.logger.Info("Connected to PulseAudio")
+
+	// queue the initial state sync
+	sf.dispatchWork(func() {
+		sf.refreshMaster()
+		sf.enumerateExistingSessions()
+		sf.enumerateExistingDevices()
+	})
+}
+
+func (sf *paSessionFinder) onDown(err error) {
+	sf.logger.Warnw("PulseAudio connection lost, clearing sessions and reconnecting", "error", err)
 	sf.clearSessions()
+}
 
-	for {
-		select {
-		case <-sf.stopCh:
-			return
-		default:
-		}
+// handleSubscribeEvent routes one subscription event from a connection's
+// callback onto the serial work queue
+func (sf *paSessionFinder) handleSubscribeEvent(v *proto.SubscribeEvent) {
+	eventType := v.Event.GetType()
+	index := v.Index
 
-		sf.logger.Debug("Attempting to reconnect to PulseAudio")
-		if err := sf.connect(); err != nil {
-			sf.logger.Debugw("Reconnect failed, retrying", "error", err)
-			time.Sleep(reconnectDelay)
-			continue
-		}
-		sf.logger.Info("Reconnected to PulseAudio")
-		return
+	switch v.Event.GetFacility() {
+	case proto.EventSinkSinkInput:
+		sf.dispatchWork(func() { sf.handleSinkInputEvent(eventType, index) })
+	case proto.EventServer:
+		sf.dispatchWork(sf.refreshMaster)
+	case proto.EventSink:
+		sf.dispatchWork(func() { sf.handleSinkEvent(eventType, index) })
+	case proto.EventSource:
+		sf.dispatchWork(func() { sf.handleSourceEvent(eventType, index) })
 	}
 }
 
 func (sf *paSessionFinder) clearSessions() {
-	// collect all sessions under the lock, then notify outside of it: the
-	// handler runs synchronously and must not be called while holding sf.mu
+	// collect all sessions under the lock, then notify outside of it
 	sf.mu.Lock()
 
 	removed := make([]Session, 0, len(sf.sinkInputs)+len(sf.namedSinks)+len(sf.namedSources)+2)
@@ -167,87 +285,11 @@ func (sf *paSessionFinder) clearSessions() {
 		sf.masterSource = nil
 	}
 
-	if sf.conn != nil {
-		sf.conn.Close()
-		sf.conn = nil
-	}
-	sf.client = nil
-
 	sf.mu.Unlock()
 
 	for _, s := range removed {
 		sf.notify(SessionEvent{Type: SessionEventRemoved, Session: s})
 		s.Release()
-	}
-}
-
-func (sf *paSessionFinder) connect() error {
-	client, conn, err := proto.Connect("")
-	if err != nil {
-		return fmt.Errorf("connect to PulseAudio: %w", err)
-	}
-
-	client.Callback = sf.onPulseEvent
-
-	if err := client.Request(&proto.SetClientName{
-		Props: proto.PropList{"application.name": proto.PropListString("deej")},
-	}, &proto.SetClientNameReply{}); err != nil {
-		conn.Close()
-		return fmt.Errorf("set client name: %w", err)
-	}
-
-	sf.mu.Lock()
-	sf.client = client
-	sf.conn = conn
-	sf.mu.Unlock()
-
-	// queue the initial enumeration before subscribing: subscription events go
-	// through the same queue, so anything that changes during or after the
-	// enumeration is processed strictly after it. subscribing after
-	// enumerating directly (the old order) would lose sessions created in
-	// between, with no periodic refresh to ever pick them up
-	sf.dispatchWork(func() {
-		sf.refreshMaster()
-		sf.enumerateExistingSessions()
-		sf.enumerateExistingDevices()
-	})
-
-	if err := client.Request(&proto.Subscribe{
-		Mask: proto.SubscriptionMaskSinkInput | proto.SubscriptionMaskServer | proto.SubscriptionMaskSink | proto.SubscriptionMaskSource,
-	}, nil); err != nil {
-		conn.Close()
-		return fmt.Errorf("subscribe to events: %w", err)
-	}
-
-	return nil
-}
-
-func (sf *paSessionFinder) requestReconnect() {
-	select {
-	case sf.reconnectCh <- struct{}{}:
-	default:
-	}
-}
-
-func (sf *paSessionFinder) onPulseEvent(msg any) {
-	switch v := msg.(type) {
-	case *proto.SubscribeEvent:
-		eventType := v.Event.GetType()
-		index := v.Index
-
-		switch v.Event.GetFacility() {
-		case proto.EventSinkSinkInput:
-			sf.dispatchWork(func() { sf.handleSinkInputEvent(eventType, index) })
-		case proto.EventServer:
-			sf.dispatchWork(sf.refreshMaster)
-		case proto.EventSink:
-			sf.dispatchWork(func() { sf.handleSinkEvent(eventType, index) })
-		case proto.EventSource:
-			sf.dispatchWork(func() { sf.handleSourceEvent(eventType, index) })
-		}
-	case *proto.ConnectionClosed:
-		sf.logger.Warn("PulseAudio connection closed, trying to reconnect")
-		sf.requestReconnect()
 	}
 }
 
@@ -266,22 +308,20 @@ func (sf *paSessionFinder) refreshMaster() {
 }
 
 func (sf *paSessionFinder) refreshMasterSink() {
-	sf.mu.RLock()
-	client := sf.client
-	sf.mu.RUnlock()
-	if client == nil {
+	conn, ok := sf.reconnector.Current()
+	if !ok {
 		return
 	}
 
 	reply := proto.GetSinkInfoReply{}
-	if err := client.Request(&proto.GetSinkInfo{SinkIndex: proto.Undefined}, &reply); err != nil {
+	if err := conn.request(&proto.GetSinkInfo{SinkIndex: proto.Undefined}, &reply); err != nil {
 		sf.logger.Debugw("Failed to get master sink info", "error", err)
 		return
 	}
 
 	sf.mu.Lock()
 	old := sf.masterSink
-	newMaster := newMasterSession(sf.sessionLogger, sf.client, reply.SinkIndex, reply.Channels, true)
+	newMaster := newMasterSession(sf.sessionLogger, conn, reply.SinkIndex, reply.Channels, true)
 	sf.masterSink = newMaster
 	sf.mu.Unlock()
 
@@ -293,22 +333,20 @@ func (sf *paSessionFinder) refreshMasterSink() {
 }
 
 func (sf *paSessionFinder) refreshMasterSource() {
-	sf.mu.RLock()
-	client := sf.client
-	sf.mu.RUnlock()
-	if client == nil {
+	conn, ok := sf.reconnector.Current()
+	if !ok {
 		return
 	}
 
 	reply := proto.GetSourceInfoReply{}
-	if err := client.Request(&proto.GetSourceInfo{SourceIndex: proto.Undefined}, &reply); err != nil {
+	if err := conn.request(&proto.GetSourceInfo{SourceIndex: proto.Undefined}, &reply); err != nil {
 		sf.logger.Debugw("Failed to get master source info", "error", err)
 		return
 	}
 
 	sf.mu.Lock()
 	old := sf.masterSource
-	newMaster := newMasterSession(sf.sessionLogger, sf.client, reply.SourceIndex, reply.Channels, false)
+	newMaster := newMasterSession(sf.sessionLogger, conn, reply.SourceIndex, reply.Channels, false)
 	sf.masterSource = newMaster
 	sf.mu.Unlock()
 
@@ -320,15 +358,13 @@ func (sf *paSessionFinder) refreshMasterSource() {
 }
 
 func (sf *paSessionFinder) enumerateExistingSessions() {
-	sf.mu.RLock()
-	client := sf.client
-	sf.mu.RUnlock()
-	if client == nil {
+	conn, ok := sf.reconnector.Current()
+	if !ok {
 		return
 	}
 
 	reply := proto.GetSinkInputInfoListReply{}
-	if err := client.Request(&proto.GetSinkInputInfoList{}, &reply); err != nil {
+	if err := conn.request(&proto.GetSinkInputInfoList{}, &reply); err != nil {
 		sf.logger.Errorw("Failed to enumerate sessions", "error", err)
 		return
 	}
@@ -340,15 +376,13 @@ func (sf *paSessionFinder) enumerateExistingSessions() {
 }
 
 func (sf *paSessionFinder) addSinkInput(index uint32) {
-	sf.mu.RLock()
-	client := sf.client
-	sf.mu.RUnlock()
-	if client == nil {
+	conn, ok := sf.reconnector.Current()
+	if !ok {
 		return
 	}
 
 	reply := proto.GetSinkInputInfoReply{}
-	if err := client.Request(&proto.GetSinkInputInfo{SinkInputIndex: index}, &reply); err != nil {
+	if err := conn.request(&proto.GetSinkInputInfo{SinkInputIndex: index}, &reply); err != nil {
 		sf.logger.Debugw("Failed to get sink input info", "index", index, "error", err)
 		return
 	}
@@ -356,6 +390,11 @@ func (sf *paSessionFinder) addSinkInput(index uint32) {
 }
 
 func (sf *paSessionFinder) addSinkInputFromInfo(info *proto.GetSinkInputInfoReply) {
+	conn, ok := sf.reconnector.Current()
+	if !ok {
+		return
+	}
+
 	// Try application.process.binary, then application.id, then application.name
 	name, ok := info.Properties["application.process.binary"]
 	if !ok {
@@ -373,7 +412,7 @@ func (sf *paSessionFinder) addSinkInputFromInfo(info *proto.GetSinkInputInfoRepl
 		sf.mu.Unlock()
 		return
 	}
-	session := newPASession(sf.sessionLogger, sf.client, info.SinkInputIndex, info.Channels, name.String())
+	session := newPASession(sf.sessionLogger, conn, info.SinkInputIndex, info.Channels, name.String())
 	sf.sinkInputs[info.SinkInputIndex] = session
 	sf.mu.Unlock()
 
@@ -402,15 +441,13 @@ func (sf *paSessionFinder) enumerateExistingDevices() {
 }
 
 func (sf *paSessionFinder) enumerateExistingSinks() {
-	sf.mu.RLock()
-	client := sf.client
-	sf.mu.RUnlock()
-	if client == nil {
+	conn, ok := sf.reconnector.Current()
+	if !ok {
 		return
 	}
 
 	reply := proto.GetSinkInfoListReply{}
-	if err := client.Request(&proto.GetSinkInfoList{}, &reply); err != nil {
+	if err := conn.request(&proto.GetSinkInfoList{}, &reply); err != nil {
 		sf.logger.Errorw("Failed to enumerate sinks", "error", err)
 		return
 	}
@@ -422,15 +459,13 @@ func (sf *paSessionFinder) enumerateExistingSinks() {
 }
 
 func (sf *paSessionFinder) enumerateExistingSources() {
-	sf.mu.RLock()
-	client := sf.client
-	sf.mu.RUnlock()
-	if client == nil {
+	conn, ok := sf.reconnector.Current()
+	if !ok {
 		return
 	}
 
 	reply := proto.GetSourceInfoListReply{}
-	if err := client.Request(&proto.GetSourceInfoList{}, &reply); err != nil {
+	if err := conn.request(&proto.GetSourceInfoList{}, &reply); err != nil {
 		sf.logger.Errorw("Failed to enumerate sources", "error", err)
 		return
 	}
@@ -460,15 +495,13 @@ func (sf *paSessionFinder) handleSourceEvent(eventType proto.SubscriptionEventTy
 }
 
 func (sf *paSessionFinder) addSink(index uint32) {
-	sf.mu.RLock()
-	client := sf.client
-	sf.mu.RUnlock()
-	if client == nil {
+	conn, ok := sf.reconnector.Current()
+	if !ok {
 		return
 	}
 
 	reply := proto.GetSinkInfoReply{}
-	if err := client.Request(&proto.GetSinkInfo{SinkIndex: index}, &reply); err != nil {
+	if err := conn.request(&proto.GetSinkInfo{SinkIndex: index}, &reply); err != nil {
 		sf.logger.Debugw("Failed to get sink info", "index", index, "error", err)
 		return
 	}
@@ -476,6 +509,11 @@ func (sf *paSessionFinder) addSink(index uint32) {
 }
 
 func (sf *paSessionFinder) addSinkFromInfo(info *proto.GetSinkInfoReply) {
+	conn, ok := sf.reconnector.Current()
+	if !ok {
+		return
+	}
+
 	// Get description from properties, fallback to sink name
 	description := info.Device
 	if description == "" {
@@ -489,7 +527,7 @@ func (sf *paSessionFinder) addSinkFromInfo(info *proto.GetSinkInfoReply) {
 		sf.mu.Unlock()
 		return
 	}
-	session := newNamedMasterSession(sf.sessionLogger, sf.client, info.SinkIndex, info.Channels, true, description)
+	session := newNamedMasterSession(sf.sessionLogger, conn, info.SinkIndex, info.Channels, true, description)
 	session.device = true
 	sf.namedSinks[info.SinkIndex] = session
 	sf.mu.Unlock()
@@ -499,15 +537,13 @@ func (sf *paSessionFinder) addSinkFromInfo(info *proto.GetSinkInfoReply) {
 }
 
 func (sf *paSessionFinder) addSource(index uint32) {
-	sf.mu.RLock()
-	client := sf.client
-	sf.mu.RUnlock()
-	if client == nil {
+	conn, ok := sf.reconnector.Current()
+	if !ok {
 		return
 	}
 
 	reply := proto.GetSourceInfoReply{}
-	if err := client.Request(&proto.GetSourceInfo{SourceIndex: index}, &reply); err != nil {
+	if err := conn.request(&proto.GetSourceInfo{SourceIndex: index}, &reply); err != nil {
 		sf.logger.Debugw("Failed to get source info", "index", index, "error", err)
 		return
 	}
@@ -515,6 +551,11 @@ func (sf *paSessionFinder) addSource(index uint32) {
 }
 
 func (sf *paSessionFinder) addSourceFromInfo(info *proto.GetSourceInfoReply) {
+	conn, ok := sf.reconnector.Current()
+	if !ok {
+		return
+	}
+
 	// Skip monitor sources (they mirror sink outputs)
 	if info.MonitorSourceName != "" {
 		return
@@ -533,7 +574,7 @@ func (sf *paSessionFinder) addSourceFromInfo(info *proto.GetSourceInfoReply) {
 		sf.mu.Unlock()
 		return
 	}
-	session := newNamedMasterSession(sf.sessionLogger, sf.client, info.SourceIndex, info.Channels, false, description)
+	session := newNamedMasterSession(sf.sessionLogger, conn, info.SourceIndex, info.Channels, false, description)
 	session.device = true
 	sf.namedSources[info.SourceIndex] = session
 	sf.mu.Unlock()
@@ -580,15 +621,9 @@ func (sf *paSessionFinder) notify(event SessionEvent) {
 }
 
 func (sf *paSessionFinder) Release() error {
+	sf.reconnector.Stop()
 	close(sf.stopCh)
 
-	sf.mu.Lock()
-	conn := sf.conn
-	sf.mu.Unlock()
-
-	if conn != nil {
-		conn.Close()
-	}
 	sf.logger.Debug("Released PA session finder")
 	return nil
 }

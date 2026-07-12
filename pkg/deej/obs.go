@@ -3,43 +3,51 @@ package deej
 import (
 	"errors"
 	"fmt"
-	"sync"
 	"time"
 
 	"github.com/andreykaipov/goobs"
 	"github.com/andreykaipov/goobs/api/requests/inputs"
 	"go.uber.org/zap"
+
+	"github.com/nik9play/deej/pkg/reconnect"
 )
+
+const obsRetryDelay = 5 * time.Second
+
+// obsConn is one OBS connection generation, carrying the config snapshot it
+// was dialed with so config reloads can detect parameter changes
+type obsConn struct {
+	client *goobs.Client
+	cfg    OBSConfig
+}
 
 type OBSClient struct {
 	deej   *Deej
 	logger *zap.SugaredLogger
 
-	client *goobs.Client
-	lock   sync.Mutex
-
-	stopChannel chan struct{}
-	errChannel  chan error
-	wg          sync.WaitGroup
-
-	// config values at time of connection
-	hostConfig     string
-	portConfig     int
-	passwordConfig string
+	reconnector *reconnect.Reconnector[obsConn]
 }
-
-const (
-	obsRetryDelay = 5 * time.Second
-)
 
 func NewOBSClient(deej *Deej, logger *zap.SugaredLogger) *OBSClient {
 	logger = logger.Named("obs")
 
 	o := &OBSClient{
-		deej:       deej,
-		logger:     logger,
-		errChannel: make(chan error, 1),
+		deej:   deej,
+		logger: logger,
 	}
+
+	o.reconnector = reconnect.New(reconnect.Options[obsConn]{
+		Logger:  logger,
+		Enabled: func() bool { return o.deej.config.Values().OBSConfig.Enabled },
+		Dial:    o.dial,
+		Watch:   o.watch,
+		Close:   o.close,
+		OnUp:    o.onUp,
+		OnDown: func(err error) {
+			o.logger.Warnw("OBS connection error, reconnecting...", "error", err)
+		},
+		Backoff: func(int) time.Duration { return obsRetryDelay },
+	})
 
 	logger.Debug("Created OBS client instance")
 
@@ -49,40 +57,34 @@ func NewOBSClient(deej *Deej, logger *zap.SugaredLogger) *OBSClient {
 }
 
 func (o *OBSClient) Start() {
-	o.stopChannel = make(chan struct{})
 	o.logger.Info("OBS client starting")
-
-	go o.managerLoop()
+	o.reconnector.Start()
 }
 
 func (o *OBSClient) Stop() {
-	if o.stopChannel == nil {
-		return
-	}
-
-	close(o.stopChannel)
-	o.wg.Wait()
-
+	o.reconnector.Stop()
 	o.logger.Info("OBS client stopped")
 }
 
 func (o *OBSClient) IsConnected() bool {
-	o.lock.Lock()
-	defer o.lock.Unlock()
-
-	return o.client != nil
+	return o.reconnector.Connected()
 }
 
-func (o *OBSClient) SetInputVolume(inputName string, volume float32) error {
-	o.lock.Lock()
-	defer o.lock.Unlock()
+// obsVolumeMulFromPercent converts a 0.0-1.0 slider position to an OBS volume
+// multiplier using the cubic curve OBS's own mixer faders use
+func obsVolumeMulFromPercent(percent float32) float64 {
+	p := float64(percent)
+	return p * p * p
+}
 
-	if o.client == nil {
+func (o *OBSClient) SetInputVolume(inputName string, percent float32) error {
+	conn, ok := o.reconnector.Current()
+	if !ok {
 		return fmt.Errorf("not connected to OBS")
 	}
 
-	vol := float64(volume)
-	_, err := o.client.Inputs.SetInputVolume(&inputs.SetInputVolumeParams{
+	vol := obsVolumeMulFromPercent(percent)
+	_, err := conn.client.Inputs.SetInputVolume(&inputs.SetInputVolumeParams{
 		InputName:      &inputName,
 		InputVolumeMul: &vol,
 	})
@@ -91,46 +93,25 @@ func (o *OBSClient) SetInputVolume(inputName string, volume float32) error {
 		return err
 	}
 
-	o.logger.Debugw("Set OBS input volume", "input", inputName, "volume", volume)
+	o.logger.Debugw("Set OBS input volume", "input", inputName, "volume", percent)
 
 	return nil
 }
 
-func (o *OBSClient) GetInputVolume(inputName string) (float32, error) {
-	o.lock.Lock()
-	defer o.lock.Unlock()
-
-	if o.client == nil {
-		return 0, fmt.Errorf("not connected to OBS")
+func (o *OBSClient) onUp(conn obsConn) {
+	// re-check the snapshot now that the connection is adopted
+	if o.deej.config.Values().OBSConfig != conn.cfg {
+		o.logger.Debug("OBS config changed while connecting, triggering reconnect")
+		o.reconnector.Reconnect(errors.New("config changed during dial"))
+		return
 	}
 
-	resp, err := o.client.Inputs.GetInputVolume(&inputs.GetInputVolumeParams{
-		InputName: &inputName,
-	})
-
-	if err != nil {
-		return 0, err
-	}
-
-	return float32(resp.InputVolumeMul), nil
+	o.logger.Info("Connected to OBS")
 }
 
-func (o *OBSClient) signalError(err error) {
-	select {
-	case o.errChannel <- err:
-	default:
-		// channel full, error already pending
-	}
-}
-
-func (o *OBSClient) connect() error {
-	o.lock.Lock()
-	defer o.lock.Unlock()
-
-	if o.client != nil {
-		return fmt.Errorf("already connected")
-	}
-
+// dial connects to OBS using the current config without touching any client
+// state - the reconnector decides whether to adopt the returned connection
+func (o *OBSClient) dial() (obsConn, error) {
 	cfg := o.deej.config.Values().OBSConfig
 	address := fmt.Sprintf("%s:%d", cfg.Host, cfg.Port)
 
@@ -144,142 +125,31 @@ func (o *OBSClient) connect() error {
 	client, err := goobs.New(address, opts...)
 	if err != nil {
 		o.logger.Debugw("Failed to connect to OBS", "error", err)
-		return fmt.Errorf("connect to OBS: %w", err)
+		return obsConn{}, fmt.Errorf("connect to OBS: %w", err)
 	}
 
-	o.client = client
-	o.hostConfig = cfg.Host
-	o.portConfig = cfg.Port
-	o.passwordConfig = cfg.Password
-
-	o.logger.Info("Connected to OBS")
-
-	return nil
+	return obsConn{client: client, cfg: cfg}, nil
 }
 
-func (o *OBSClient) disconnect() {
-	o.lock.Lock()
-	defer o.lock.Unlock()
-
-	if o.client == nil {
-		return
+// watch drains a single connection's incoming events to detect
+// disconnection; Disconnect closes the events channel, which ends the loop
+func (o *OBSClient) watch(conn obsConn, errChannel chan<- error) {
+	for range conn.client.IncomingEvents { //nolint:revive // draining only
 	}
 
-	_ = o.client.Disconnect()
-	o.client = nil
+	select {
+	case errChannel <- errors.New("OBS connection closed"):
+	default:
+	}
+}
 
+func (o *OBSClient) close(conn obsConn) {
+	_ = conn.client.Disconnect()
 	o.logger.Info("Disconnected from OBS")
 }
 
-func (o *OBSClient) managerLoop() {
-	o.wg.Add(1)
-	defer o.wg.Done()
-
-	obsConfig := o.deej.config.Values().OBSConfig
-	o.logger.Infow("Trying OBS connection",
-		"host", obsConfig.Host,
-		"port", obsConfig.Port,
-	)
-
-	for {
-		// check if OBS is enabled
-		if !o.deej.config.Values().OBSConfig.Enabled {
-			select {
-			case <-o.stopChannel:
-				o.logger.Debug("managerLoop: stop signal")
-				return
-			case <-time.After(obsRetryDelay):
-				continue
-			}
-		}
-
-		// attempt connection in goroutine so we can respond to stop signal
-		connectResult := make(chan error, 1)
-		go func() {
-			connectResult <- o.connect()
-		}()
-
-		// wait for connection result or stop signal
-		select {
-		case <-o.stopChannel:
-			o.logger.Debug("managerLoop: stop signal during connect")
-			// wait for connect to finish, then disconnect if it succeeded
-			if err := <-connectResult; err == nil {
-				o.disconnect()
-			}
-			return
-
-		case err := <-connectResult:
-			if err != nil {
-				o.logger.Debugw("OBS connection error, retrying...", "error", err)
-
-				select {
-				case <-o.stopChannel:
-					o.logger.Debug("managerLoop: stop signal")
-					return
-				case <-time.After(obsRetryDelay):
-					continue
-				}
-			}
-		}
-
-		// re-check if OBS was disabled while connecting
-		if !o.deej.config.Values().OBSConfig.Enabled {
-			o.logger.Debug("OBS disabled while connecting, disconnecting")
-			o.disconnect()
-			continue
-		}
-
-		// drain any stale errors from previous connection
-		select {
-		case <-o.errChannel:
-		default:
-		}
-
-		// start event listener to detect disconnection
-		go o.eventLoop()
-
-		select {
-		case <-o.stopChannel:
-			o.logger.Debug("managerLoop: stop signal")
-			o.disconnect()
-			return
-
-		case err := <-o.errChannel:
-			o.logger.Warnw("OBS connection error, reconnecting...", "error", err)
-			o.disconnect()
-			time.Sleep(obsRetryDelay)
-			continue
-		}
-	}
-}
-
-func (o *OBSClient) eventLoop() {
-	o.wg.Add(1)
-	defer o.wg.Done()
-
-	o.lock.Lock()
-	client := o.client
-	o.lock.Unlock()
-
-	if client == nil {
-		return
-	}
-
-	for {
-		select {
-		case <-o.stopChannel:
-			return
-		case _, ok := <-client.IncomingEvents:
-			if !ok {
-				// channel closed = disconnected
-				o.signalError(errors.New("OBS connection closed"))
-				return
-			}
-		}
-	}
-}
-
+// setupOnConfigReload triggers a reconnect when
+// the OBS connection parameters change
 func (o *OBSClient) setupOnConfigReload() {
 	configReloadedChannel := o.deej.config.SubscribeToChanges()
 
@@ -287,25 +157,16 @@ func (o *OBSClient) setupOnConfigReload() {
 		for {
 			<-configReloadedChannel
 
-			// only trigger reconnect if currently connected
-			if !o.IsConnected() {
+			conn, ok := o.reconnector.Current()
+			if !ok {
 				continue
 			}
 
 			cfg := o.deej.config.Values().OBSConfig
 
-			// the connection-time params are written by connect under the lock
-			o.lock.Lock()
-			host, port, password := o.hostConfig, o.portConfig, o.passwordConfig
-			o.lock.Unlock()
-
-			if cfg.Host != host ||
-				cfg.Port != port ||
-				cfg.Password != password ||
-				!cfg.Enabled {
-
+			if cfg != conn.cfg {
 				o.logger.Debug("OBS config changed, triggering reconnect")
-				o.signalError(errors.New("config changed"))
+				o.reconnector.Reconnect(errors.New("config changed"))
 			}
 		}
 	}()
