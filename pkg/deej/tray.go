@@ -158,6 +158,9 @@ func (d *Deej) initializeTray(onDone func()) {
 		Windows: application.WindowsOptions{DisableQuitOnLastWindowClosed: true},
 		Linux:   application.LinuxOptions{DisableQuitOnLastWindowClosed: true},
 		Assets:  application.AssetOptions{Handler: application.AssetFileServerFS(dist)},
+		Services: []application.Service{
+			application.NewService(newSettingsService(d)),
+		},
 		PostShutdown: func() {
 			close(d.tray.shutdownDone)
 		},

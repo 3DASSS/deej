@@ -36,6 +36,9 @@ type Deej struct {
 	localizer *i18n.Localizer
 	tray      trayState
 
+	// the language the localizer ended up using, after resolving "auto"
+	resolvedLanguage string
+
 	stopChannel chan bool
 	version     string
 	verbose     bool
@@ -172,6 +175,7 @@ func (d *Deej) updateLocalizer() error {
 	}
 	d.logger.Infof("Selected language: %s", lang)
 	d.localizer = i18n.NewLocalizer(d.bundle, lang, "en")
+	d.resolvedLanguage = lang
 
 	return nil
 }
