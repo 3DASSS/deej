@@ -1,28 +1,33 @@
 <script lang="ts">
   import { SettingsDTO } from "../../bindings/github.com/nik9play/deej/pkg/deej";
   import { t } from "../lib/i18n";
+  import FieldCheckbox from "./ui/FieldCheckbox.svelte";
+  import FieldSelect from "./ui/FieldSelect.svelte";
 
   let { settings }: { settings: SettingsDTO } = $props();
+
+  const noiseItems = $derived([
+    ...(settings.noiseReduction === "" ? [{ value: "", label: t("noiseDefault") }] : []),
+    { value: "default", label: t("noiseDefault") },
+    { value: "low", label: t("noiseLow") },
+    { value: "high", label: t("noiseHigh") },
+    { value: "none", label: t("noiseNone") },
+  ]);
 </script>
 
 <section class="card">
   <h2 class="mb-3 text-sm font-semibold">{t("behavior")}</h2>
 
-  <div class="mb-3 flex items-center gap-2">
-    <input id="invert-sliders" type="checkbox" class="size-4 accent-accent" bind:checked={settings.invertSliders} />
-    <label class="text-sm" for="invert-sliders">{t("invertSliders")} ({t("invertSlidersHint")})</label>
+  <div class="mb-3">
+    <FieldCheckbox
+      id="invert-sliders"
+      bind:checked={settings.invertSliders}
+      label="{t('invertSliders')} ({t('invertSlidersHint')})"
+    />
   </div>
 
   <div class="flex max-w-xs flex-col gap-1">
     <label class="label" for="noise-reduction">{t("noiseReduction")}</label>
-    <select id="noise-reduction" class="input" bind:value={settings.noiseReduction}>
-      {#if settings.noiseReduction === ""}
-        <option value="">{t("noiseDefault")}</option>
-      {/if}
-      <option value="default">{t("noiseDefault")}</option>
-      <option value="low">{t("noiseLow")}</option>
-      <option value="high">{t("noiseHigh")}</option>
-      <option value="none">{t("noiseNone")}</option>
-    </select>
+    <FieldSelect id="noise-reduction" bind:value={settings.noiseReduction} items={noiseItems} />
   </div>
 </section>

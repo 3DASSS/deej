@@ -1,6 +1,7 @@
 <script lang="ts">
   import { SettingsDTO } from "../../bindings/github.com/nik9play/deej/pkg/deej";
   import { t } from "../lib/i18n";
+  import FieldCheckbox from "./ui/FieldCheckbox.svelte";
 
   let { settings }: { settings: SettingsDTO } = $props();
 </script>
@@ -8,10 +9,7 @@
 <section class="card">
   <h2 class="mb-3 text-sm font-semibold">{t("obs")}</h2>
 
-  <div class="flex items-center gap-2">
-    <input id="obs-enabled" type="checkbox" class="size-4 accent-accent" bind:checked={settings.obsEnabled} />
-    <label class="text-sm" for="obs-enabled">{t("obsEnabled")}</label>
-  </div>
+  <FieldCheckbox id="obs-enabled" bind:checked={settings.obsEnabled} label={t("obsEnabled")} />
   <div class="hint mt-2">{t("obsHint")}</div>
 
   {#if settings.obsEnabled}
