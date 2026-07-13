@@ -26,7 +26,7 @@ export function specialTargetDescription(target: string): string | null {
 // targetLabel resolves a slider target to a human-friendly display name:
 // localized names for special targets, the input name for OBS targets, the
 // session's display name (e.g. exe file description) when it's running, and
-// a prettified process name otherwise
+// the target as written in the config otherwise
 export function targetLabel(target: string): string {
   const special = specialTargetLabel(target);
   if (special !== null) {
@@ -39,11 +39,11 @@ export function targetLabel(target: string): string {
   }
 
   const session = app.sessions.find((s) => s.key === lower);
-  if (session?.displayName) {
-    return session.displayName;
+  if (session) {
+    return session.displayName || prettifyProcessName(target);
   }
 
-  return prettifyProcessName(target);
+  return target;
 }
 
 export function prettifyProcessName(name: string): string {
