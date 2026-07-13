@@ -147,10 +147,45 @@ jobs:
           name: deej-linux-${{ matrix.arch }}
           path: build/
 
+  # the headless build compiles Wails out (-tags headless), so it is cgo-free and
+  # a single runner cross-compiles every arch without GTK/WebKit or Node
+  build-linux-headless:
+    name: Build (linux headless)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.25.7"
+
+      - name: Install Task
+        uses: arduino/setup-task@v2
+        with:
+          version: 3.x
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build deej (headless, amd64 + arm64)
+        run: |
+          GOARCH=amd64 task linux:build:headless
+          mv build/deej-headless build/deej-linux-amd64-headless
+          GOARCH=arm64 task linux:build:headless
+          mv build/deej-headless build/deej-linux-arm64-headless
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: deej-linux-headless
+          path: build/
+
   release:
     name: Create release draft
     if: startsWith(github.ref, 'refs/tags/')
-    needs: [build-windows, build-linux]
+    needs: [build-windows, build-linux, build-linux-headless]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -176,9 +211,13 @@ jobs:
             | Windows portable | arm64 | [deej-windows-arm64.exe](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/deej-windows-arm64.exe) |
             | Linux | amd64 | [deej-linux-amd64](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/deej-linux-amd64) |
             | Linux | arm64 | [deej-linux-arm64](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/deej-linux-arm64) |
+            | Linux (headless, no GUI) | amd64 | [deej-linux-amd64-headless](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/deej-linux-amd64-headless) |
+            | Linux (headless, no GUI) | arm64 | [deej-linux-arm64-headless](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/deej-linux-arm64-headless) |
           files: |
             artifacts/deej-windows-amd64.exe
             artifacts/deej-windows-arm64.exe
             artifacts/deej-linux-amd64
             artifacts/deej-linux-arm64
+            artifacts/deej-linux-amd64-headless
+            artifacts/deej-linux-arm64-headless
             artifacts/deej_setup.exe

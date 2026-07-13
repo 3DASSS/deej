@@ -39,6 +39,7 @@ tasks:
   build:headless:
     desc: Build a GUI-less, cgo-free daemon (cross-compilable) -> deej-headless
     env:
+      GOOS: linux
       CGO_ENABLED: "0"
     cmds:
       - go build -tags headless -o {{.BIN_DIR}}/deej-headless -ldflags "-s -w {{.LDFLAGS}} -X main.buildType=release" ./pkg/deej/cmd
