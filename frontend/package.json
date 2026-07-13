@@ -11,6 +11,7 @@
     "check": "svelte-check --tsconfig ./tsconfig.json"
   },
   "dependencies": {
+    "@inlang/paraglide-js": "^2.21.0",
     "@lucide/svelte": "^1.24.0",
     "@wailsio/runtime": "latest",
     "bits-ui": "^2.18.1"

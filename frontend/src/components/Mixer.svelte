@@ -1,6 +1,6 @@
 <script lang="ts">
   import { app } from "../lib/state.svelte";
-  import { t } from "../lib/i18n";
+  import { m } from "../paraglide/messages";
   import SliderColumn from "./SliderColumn.svelte";
 
   let { onEditTargets }: { onEditTargets: (slider: number) => void } = $props();
@@ -21,7 +21,7 @@
 <div class="flex h-full flex-col">
   {#if !app.connected}
     <div class="shrink-0 border-b border-edge bg-chip px-4 py-1.5 text-center text-xs text-muted">
-      {t("waitingForDevice")}{app.comPort ? ` (${app.comPort})` : ""}
+      {m.waitingForDevice()}{app.comPort ? ` (${app.comPort})` : ""}
     </div>
   {/if}
 

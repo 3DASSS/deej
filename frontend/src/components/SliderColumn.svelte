@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { t } from "../lib/i18n";
+  import { m } from "../paraglide/messages";
   import { targetLabel } from "../lib/targets";
 
   let {
@@ -21,7 +21,7 @@
     aria-valuemin={0}
     aria-valuemax={100}
     aria-valuenow={percent}
-    aria-label="{t('slider')} {slider}"
+    aria-label="{m.slider()} {slider}"
   >
     <div
       class="absolute right-0 bottom-0 left-0 rounded-full bg-accent transition-[height] duration-100 ease-linear"
@@ -34,12 +34,12 @@
     class="max-w-full cursor-pointer rounded-full border px-2.5 py-0.5 text-xs transition-colors hover:border-accent {targets.length
       ? 'border-edge bg-chip'
       : 'border-dashed border-edge text-muted'}"
-    title={targets.join(", ") || t("unmapped")}
+    title={targets.join(", ") || m.unmapped()}
     onclick={onEdit}
   >
     <span class="block truncate">
       {#if targets.length === 0}
-        {t("unmapped")}
+        {m.unmapped()}
       {:else if targets.length === 1}
         {targetLabel(targets[0])}
       {:else}

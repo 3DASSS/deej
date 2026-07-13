@@ -2,7 +2,7 @@
   import { onMount } from "svelte";
   import RefreshCw from "@lucide/svelte/icons/refresh-cw";
   import { SettingsDTO, SerialPortDTO, SettingsService } from "../../bindings/github.com/nik9play/deej/pkg/deej";
-  import { t } from "../lib/i18n";
+  import { m } from "../paraglide/messages";
   import FieldCombobox from "./ui/FieldCombobox.svelte";
 
   let { settings }: { settings: SettingsDTO } = $props();
@@ -20,7 +20,7 @@
   }
 
   const portItems = $derived([
-    { value: "auto", hint: t("comPortAuto") },
+    { value: "auto", hint: m.comPortAuto() },
     ...ports.map((port) => ({
       value: port.name,
       hint: port.product || (port.isUsb ? `USB ${port.vid}:${port.pid}` : ""),
@@ -37,23 +37,23 @@
 </script>
 
 <section class="card">
-  <h2 class="mb-3 text-sm font-semibold">{t("connection")}</h2>
+  <h2 class="mb-3 text-sm font-semibold">{m.connection()}</h2>
 
   <div class="flex flex-wrap gap-3.5">
     <div class="flex min-w-40 flex-1 flex-col gap-1">
-      <label class="label" for="com-port">{t("comPort")}</label>
+      <label class="label" for="com-port">{m.comPort()}</label>
       <div class="flex gap-1.5">
         <div class="flex-1">
           <FieldCombobox id="com-port" bind:value={settings.comPort} items={portItems} />
         </div>
-        <button class="btn px-2.5" type="button" onclick={refreshPorts} title={t("refreshPorts")} aria-label={t("refreshPorts")}>
+        <button class="btn px-2.5" type="button" onclick={refreshPorts} title={m.refreshPorts()} aria-label={m.refreshPorts()}>
           <RefreshCw size={14} />
         </button>
       </div>
     </div>
 
     <div class="flex min-w-40 flex-1 flex-col gap-1">
-      <label class="label" for="baud-rate">{t("baudRate")}</label>
+      <label class="label" for="baud-rate">{m.baudRate()}</label>
       <FieldCombobox
         id="baud-rate"
         items={baudItems}
@@ -65,14 +65,14 @@
   {#if settings.comPort === "auto"}
     <div class="mt-3 flex flex-wrap gap-3.5">
       <div class="flex min-w-40 flex-1 flex-col gap-1">
-        <label class="label" for="com-vid">{t("vid")}</label>
+        <label class="label" for="com-vid">{m.vid()}</label>
         <input id="com-vid" type="text" class="input" bind:value={settings.comVid} />
       </div>
       <div class="flex min-w-40 flex-1 flex-col gap-1">
-        <label class="label" for="com-pid">{t("pid")}</label>
+        <label class="label" for="com-pid">{m.pid()}</label>
         <input id="com-pid" type="text" class="input" bind:value={settings.comPid} />
       </div>
     </div>
-    <div class="hint mt-2">{t("vidPidHint")}</div>
+    <div class="hint mt-2">{m.vidPidHint()}</div>
   {/if}
 </section>

@@ -9,7 +9,7 @@
   import X from "@lucide/svelte/icons/x";
   import { AppInfoDTO, SettingsDTO, SettingsService } from "../../bindings/github.com/nik9play/deej/pkg/deej";
   import { app, refreshSessions } from "../lib/state.svelte";
-  import { t } from "../lib/i18n";
+  import { m } from "../paraglide/messages";
   import { OBS_PREFIX, prettifyProcessName, specialTargetDescription, specialTargetLabel, targetLabel } from "../lib/targets";
 
   let {
@@ -134,7 +134,7 @@
       // local state refreshes via the deej:config event round-trip
       open = false;
     } catch (err) {
-      errorText = `${t("saveError")}: ${err}`;
+      errorText = `${m.saveError()}: ${err}`;
     } finally {
       saving = false;
     }
@@ -166,10 +166,10 @@
       class="fixed top-1/2 left-1/2 z-50 flex max-h-[88dvh] w-[min(480px,92vw)] -translate-x-1/2 -translate-y-1/2 flex-col rounded-lg border border-edge bg-surface shadow-2xl"
     >
       <div class="flex shrink-0 items-center justify-between border-b border-edge px-4 py-2.5">
-        <Dialog.Title class="text-sm font-semibold">{t("targetsFor")} {slider}</Dialog.Title>
+        <Dialog.Title class="text-sm font-semibold">{m.targetsFor()} {slider}</Dialog.Title>
         <Dialog.Close
           class="cursor-pointer rounded p-1 text-muted transition-colors hover:bg-chip hover:text-body"
-          aria-label={t("close")}
+          aria-label={m.close()}
         >
           <X size={15} />
         </Dialog.Close>
@@ -186,21 +186,21 @@
               <button
                 type="button"
                 class="cursor-pointer rounded-full p-0.5 text-muted hover:text-danger"
-                title={t("removeTarget")}
-                aria-label={t("removeTarget")}
+                title={m.removeTarget()}
+                aria-label={m.removeTarget()}
                 onclick={() => removeTarget(target)}
               >
                 <X size={12} />
               </button>
             </span>
           {:else}
-            <span class="hint italic">{t("noTargets")}</span>
+            <span class="hint italic">{m.noTargets()}</span>
           {/each}
         </div>
 
         <Tabs.Root bind:value={tab} class="flex min-h-0 flex-1 flex-col">
           <Tabs.List class="flex shrink-0 gap-1 border-b border-edge">
-            {#each [{ value: "apps", label: t("tabApps"), Icon: AppWindow }, { value: "devices", label: t("tabDevices"), Icon: Speaker }, { value: "special", label: t("tabSpecial"), Icon: Sparkles }, { value: "obs", label: t("tabObs"), Icon: Video }] as tabItem (tabItem.value)}
+            {#each [{ value: "apps", label: m.tabApps(), Icon: AppWindow }, { value: "devices", label: m.tabDevices(), Icon: Speaker }, { value: "special", label: m.tabSpecial(), Icon: Sparkles }, { value: "obs", label: m.tabObs(), Icon: Video }] as tabItem (tabItem.value)}
               <Tabs.Trigger
                 value={tabItem.value}
                 class="-mb-px flex cursor-pointer items-center gap-1.5 border-b-2 border-transparent px-2.5 py-1.5 text-sm text-muted transition-colors hover:text-body data-[state=active]:border-accent data-[state=active]:text-body"
@@ -215,7 +215,7 @@
             <input
               type="text"
               class="input shrink-0"
-              placeholder={t("searchApps")}
+              placeholder={m.searchApps()}
               bind:value={appSearch}
               onkeydown={(e) => {
                 if (e.key === "Enter") {
@@ -232,7 +232,7 @@
                   onclick={addFreeText}
                 >
                   <Plus size={14} class="shrink-0" />
-                  <span class="truncate">{t("addTarget")}: "{freeText}"</span>
+                  <span class="truncate">{m.addTarget()}: "{freeText}"</span>
                 </button>
               {/if}
               {#each appItems as session (session.key)}
@@ -243,7 +243,7 @@
                 )}
               {:else}
                 {#if freeText === ""}
-                  <div class="hint px-2 py-1.5">{t("noSessions")}</div>
+                  <div class="hint px-2 py-1.5">{m.noSessions()}</div>
                 {/if}
               {/each}
             </div>
@@ -254,7 +254,7 @@
               {#each deviceItems as session (session.key)}
                 {@render itemRow(session.key, session.displayName || session.key, "")}
               {:else}
-                <div class="hint px-2 py-1.5">{t("noDevices")}</div>
+                <div class="hint px-2 py-1.5">{m.noDevices()}</div>
               {/each}
             </div>
           </Tabs.Content>
@@ -269,13 +269,13 @@
 
           <Tabs.Content value="obs" class="flex min-h-0 flex-1 flex-col gap-2 pt-3">
             {#if !app.settings?.obsEnabled}
-              <div class="hint py-1.5">{t("obsDisabled")}</div>
+              <div class="hint py-1.5">{m.obsDisabled()}</div>
             {:else}
               <div class="flex shrink-0 gap-2">
                 <input
                   type="text"
                   class="input flex-1"
-                  placeholder={t("obsInputPlaceholder")}
+                  placeholder={m.obsInputPlaceholder()}
                   bind:value={obsInputName}
                   onkeydown={(e) => {
                     if (e.key === "Enter") {
@@ -289,19 +289,19 @@
                   class="btn shrink-0"
                   onclick={addObsInput}
                   disabled={obsInputName.trim() === ""}
-                  aria-label={t("addTarget")}
+                  aria-label={m.addTarget()}
                 >
                   <Plus size={14} />
                 </button>
               </div>
               <div class="h-44 overflow-y-auto">
                 {#if obsError}
-                  <div class="hint px-2 py-1.5">{t("obsNotConnected")}</div>
+                  <div class="hint px-2 py-1.5">{m.obsNotConnected()}</div>
                 {:else}
                   {#each obsInputs as inputName (inputName)}
                     {@render itemRow(OBS_PREFIX + inputName, inputName, "")}
                   {:else}
-                    <div class="hint px-2 py-1.5">{t("noObsInputs")}</div>
+                    <div class="hint px-2 py-1.5">{m.noObsInputs()}</div>
                   {/each}
                 {/if}
               </div>
@@ -311,8 +311,8 @@
       </div>
 
       <div class="flex shrink-0 items-center gap-2 border-t border-edge px-4 py-2.5">
-        <button class="btn btn-primary" onclick={save} disabled={saving}>{t("ok")}</button>
-        <button class="btn" onclick={() => (open = false)} disabled={saving}>{t("cancel")}</button>
+        <button class="btn btn-primary" onclick={save} disabled={saving}>{m.ok()}</button>
+        <button class="btn" onclick={() => (open = false)} disabled={saving}>{m.cancel()}</button>
         {#if errorText}
           <span class="ml-auto text-[13px] text-danger">{errorText}</span>
         {/if}

@@ -2,7 +2,7 @@
   import { Dialog } from "bits-ui";
   import X from "@lucide/svelte/icons/x";
   import { AppInfoDTO, SettingsDTO, SettingsService } from "../../bindings/github.com/nik9play/deej/pkg/deej";
-  import { t } from "../lib/i18n";
+  import { m } from "../paraglide/messages";
   import ConnectionSection from "./ConnectionSection.svelte";
   import BehaviorSection from "./BehaviorSection.svelte";
   import LanguageSection from "./LanguageSection.svelte";
@@ -35,7 +35,7 @@
       settings = JSON.parse(JSON.stringify(loaded));
       originalJson = JSON.stringify(settings);
     } catch (err) {
-      showStatus(`${t("loadError")}: ${err}`, "error");
+      showStatus(`${m.loadError()}: ${err}`, "error");
     }
   }
 
@@ -54,9 +54,9 @@
     try {
       await SettingsService.SaveSettings(settings);
       originalJson = JSON.stringify(settings);
-      showStatus(t("saved"), "ok");
+      showStatus(m.saved(), "ok");
     } catch (err) {
-      showStatus(`${t("saveError")}: ${err}`, "error");
+      showStatus(`${m.saveError()}: ${err}`, "error");
     } finally {
       saving = false;
     }
@@ -76,10 +76,10 @@
       class="fixed top-1/2 left-1/2 z-50 flex max-h-[88dvh] w-[min(560px,92vw)] -translate-x-1/2 -translate-y-1/2 flex-col rounded-lg border border-edge bg-surface shadow-2xl"
     >
       <div class="flex shrink-0 items-center justify-between border-b border-edge px-4 py-2.5">
-        <Dialog.Title class="text-sm font-semibold">{t("settings")}</Dialog.Title>
+        <Dialog.Title class="text-sm font-semibold">{m.settings()}</Dialog.Title>
         <Dialog.Close
           class="cursor-pointer rounded p-1 text-muted transition-colors hover:bg-chip hover:text-body"
-          aria-label={t("close")}
+          aria-label={m.close()}
         >
           <X size={15} />
         </Dialog.Close>
@@ -93,15 +93,15 @@
           <ObsSection {settings} />
 
           <div class="hint select-text">
-            {#if appInfo?.version}{t("version")}: {appInfo.version} &middot;{/if}
-            {t("configPath")}: {appInfo?.configPath}
+            {#if appInfo?.version}{m.version()}: {appInfo.version} &middot;{/if}
+            {m.configPath()}: {appInfo?.configPath}
           </div>
         {/if}
       </div>
 
       <div class="flex shrink-0 items-center gap-2 border-t border-edge px-4 py-2.5">
-        <button class="btn btn-primary" onclick={save} disabled={!dirty || saving}>{t("save")}</button>
-        <button class="btn" onclick={revert} disabled={!dirty || saving}>{t("revert")}</button>
+        <button class="btn btn-primary" onclick={save} disabled={!dirty || saving}>{m.save()}</button>
+        <button class="btn" onclick={revert} disabled={!dirty || saving}>{m.revert()}</button>
         {#if statusText}
           <span class="ml-auto text-[13px] {statusKind === 'ok' ? 'text-success' : 'text-danger'}">{statusText}</span>
         {/if}

@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { defineConfig, type Plugin } from "vite";
 import { svelte } from "@sveltejs/vite-plugin-svelte";
 import tailwindcss from "@tailwindcss/vite";
+import { paraglideVitePlugin } from "@inlang/paraglide-js";
 import wails from "@wailsio/runtime/plugins/vite";
 
 // dist/.gitkeep is committed so the Go embed compiles before the first build;
@@ -23,5 +24,18 @@ export default defineConfig({
     port: Number(process.env.WAILS_VITE_PORT) || 9245,
     strictPort: true,
   },
-  plugins: [tailwindcss(), svelte(), wails("./bindings"), keepGitkeep()],
+  plugins: [
+    tailwindcss(),
+    svelte(),
+    paraglideVitePlugin({
+      project: "./project.inlang",
+      outdir: "./src/paraglide",
+      // The Go host sets the locale once at startup from appInfo.resolvedLanguage
+      // (see main.ts); there's no SSR or in-app reload, so an in-memory locale is
+      // all we need. baseLocale (en) is the fallback before setLocale runs.
+      strategy: ["globalVariable", "baseLocale"],
+    }),
+    wails("./bindings"),
+    keepGitkeep(),
+  ],
 });

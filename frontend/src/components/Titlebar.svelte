@@ -6,7 +6,7 @@
   import Square from "@lucide/svelte/icons/square";
   import Copy from "@lucide/svelte/icons/copy";
   import X from "@lucide/svelte/icons/x";
-  import { t } from "../lib/i18n";
+  import { m } from "../paraglide/messages";
 
   let { version = "", onOpenSettings }: { version?: string; onOpenSettings: () => void } = $props();
 
@@ -46,8 +46,8 @@
     <button
       type="button"
       class="flex w-11 items-center justify-center text-muted transition-colors hover:bg-chip hover:text-body"
-      title={t("settings")}
-      aria-label={t("settings")}
+      title={m.settings()}
+      aria-label={m.settings()}
       onclick={onOpenSettings}
       ondblclick={(e) => e.stopPropagation()}
     >
@@ -56,8 +56,8 @@
     <button
       type="button"
       class="flex w-11 items-center justify-center text-muted transition-colors hover:bg-chip hover:text-body"
-      title={t("minimize")}
-      aria-label={t("minimize")}
+      title={m.minimize()}
+      aria-label={m.minimize()}
       onclick={() => Window.Minimise()}
       ondblclick={(e) => e.stopPropagation()}
     >
@@ -66,8 +66,8 @@
     <button
       type="button"
       class="flex w-11 items-center justify-center text-muted transition-colors hover:bg-chip hover:text-body"
-      title={maximised ? t("restore") : t("maximize")}
-      aria-label={maximised ? t("restore") : t("maximize")}
+      title={maximised ? m.restore() : m.maximize()}
+      aria-label={maximised ? m.restore() : m.maximize()}
       onclick={toggleMaximise}
       ondblclick={(e) => e.stopPropagation()}
     >
@@ -80,8 +80,8 @@
     <button
       type="button"
       class="flex w-11 items-center justify-center text-muted transition-colors hover:bg-danger hover:text-white"
-      title={t("close")}
-      aria-label={t("close")}
+      title={m.close()}
+      aria-label={m.close()}
       onclick={() => Window.Close()}
       ondblclick={(e) => e.stopPropagation()}
     >

@@ -1,26 +1,26 @@
-import { t } from "./i18n";
+import { m } from "../paraglide/messages";
 import { app } from "./state.svelte";
 
 export const OBS_PREFIX = "deej.obs:";
 
-// special target -> i18n label/description key suffix
-const specialTargetKeys: Record<string, string> = {
-  master: "Master",
-  system: "System",
-  mic: "Mic",
-  "deej.current": "Current",
-  "deej.current.fullscreen": "CurrentFullscreen",
-  "deej.unmapped": "Unmapped",
+// special target -> localized label/description message functions
+const specialTargets: Record<string, { label: () => string; desc: () => string }> = {
+  master: { label: m.targetMaster, desc: m.targetMasterDesc },
+  system: { label: m.targetSystem, desc: m.targetSystemDesc },
+  mic: { label: m.targetMic, desc: m.targetMicDesc },
+  "deej.current": { label: m.targetCurrent, desc: m.targetCurrentDesc },
+  "deej.current.fullscreen": { label: m.targetCurrentFullscreen, desc: m.targetCurrentFullscreenDesc },
+  "deej.unmapped": { label: m.targetUnmapped, desc: m.targetUnmappedDesc },
 };
 
 export function specialTargetLabel(target: string): string | null {
-  const key = specialTargetKeys[target.toLowerCase()];
-  return key ? t(`target${key}`) : null;
+  const entry = specialTargets[target.toLowerCase()];
+  return entry ? entry.label() : null;
 }
 
 export function specialTargetDescription(target: string): string | null {
-  const key = specialTargetKeys[target.toLowerCase()];
-  return key ? t(`target${key}Desc`) : null;
+  const entry = specialTargets[target.toLowerCase()];
+  return entry ? entry.desc() : null;
 }
 
 // targetLabel resolves a slider target to a human-friendly display name:
