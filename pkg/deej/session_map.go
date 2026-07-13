@@ -458,9 +458,11 @@ func (m *sessionMap) sessionInfos() []SessionInfoDTO {
 	for key, sessions := range m.m {
 		info := SessionInfoDTO{Key: key}
 		for _, session := range sessions {
-			if name := session.DisplayName(); name != "" {
-				info.DisplayName = name
-				break
+			if session.IsDevice() {
+				info.IsDevice = true
+			}
+			if info.DisplayName == "" {
+				info.DisplayName = session.DisplayName()
 			}
 		}
 		infos = append(infos, info)

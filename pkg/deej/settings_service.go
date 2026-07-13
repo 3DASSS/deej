@@ -37,6 +37,7 @@ type AppInfoDTO struct {
 type SessionInfoDTO struct {
 	Key         string `json:"key"`
 	DisplayName string `json:"displayName"` // friendly name, may be empty
+	IsDevice    bool   `json:"isDevice"`    // device master session, not a process
 }
 
 // StatusDTO describes the live connection state for the settings GUI

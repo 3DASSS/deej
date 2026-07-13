@@ -96,6 +96,11 @@ export class SessionInfoDTO {
      */
     "displayName": string;
 
+    /**
+     * device master session, not a process
+     */
+    "isDevice": boolean;
+
     /** Creates a new SessionInfoDTO instance. */
     constructor($$source: Partial<SessionInfoDTO> = {}) {
         if (!("key" in $$source)) {
@@ -103,6 +108,9 @@ export class SessionInfoDTO {
         }
         if (!("displayName" in $$source)) {
             this["displayName"] = "";
+        }
+        if (!("isDevice" in $$source)) {
+            this["isDevice"] = false;
         }
 
         Object.assign(this, $$source);

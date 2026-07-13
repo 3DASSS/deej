@@ -95,6 +95,8 @@ func newNamedMasterSession(
 	s.master = true
 	s.name = name
 	s.humanReadableDesc = name
+	// keeps the original casing (Key() lowercases), shown for device sessions
+	s.displayName = name
 
 	s.logger.Debugw(sessionCreationLogMessage, "session", s)
 

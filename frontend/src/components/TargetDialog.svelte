@@ -4,6 +4,7 @@
   import Check from "@lucide/svelte/icons/check";
   import Plus from "@lucide/svelte/icons/plus";
   import Sparkles from "@lucide/svelte/icons/sparkles";
+  import Speaker from "@lucide/svelte/icons/speaker";
   import Video from "@lucide/svelte/icons/video";
   import X from "@lucide/svelte/icons/x";
   import { AppInfoDTO, SettingsDTO, SettingsService } from "../../bindings/github.com/nik9play/deej/pkg/deej";
@@ -63,7 +64,7 @@
   const appItems = $derived.by(() => {
     const query = appSearch.trim().toLowerCase();
     return app.sessions
-      .filter((session) => !specialSessionKeys.includes(session.key))
+      .filter((session) => !session.isDevice && !specialSessionKeys.includes(session.key))
       .filter(
         (session) =>
           query === "" ||
@@ -71,6 +72,8 @@
           (session.displayName ?? "").toLowerCase().includes(query),
       );
   });
+
+  const deviceItems = $derived(app.sessions.filter((session) => session.isDevice));
 
   // arbitrary process names are allowed - offer to add the typed text when it
   // doesn't exactly match a running session
@@ -197,10 +200,10 @@
 
         <Tabs.Root bind:value={tab} class="flex min-h-0 flex-1 flex-col">
           <Tabs.List class="flex shrink-0 gap-1 border-b border-edge">
-            {#each [{ value: "apps", label: t("tabApps"), Icon: AppWindow }, { value: "special", label: t("tabSpecial"), Icon: Sparkles }, { value: "obs", label: t("tabObs"), Icon: Video }] as tabItem (tabItem.value)}
+            {#each [{ value: "apps", label: t("tabApps"), Icon: AppWindow }, { value: "devices", label: t("tabDevices"), Icon: Speaker }, { value: "special", label: t("tabSpecial"), Icon: Sparkles }, { value: "obs", label: t("tabObs"), Icon: Video }] as tabItem (tabItem.value)}
               <Tabs.Trigger
                 value={tabItem.value}
-                class="-mb-px flex cursor-pointer items-center gap-1.5 border-b-2 border-transparent px-3 py-1.5 text-sm text-muted transition-colors hover:text-body data-[state=active]:border-accent data-[state=active]:text-body"
+                class="-mb-px flex cursor-pointer items-center gap-1.5 border-b-2 border-transparent px-2.5 py-1.5 text-sm text-muted transition-colors hover:text-body data-[state=active]:border-accent data-[state=active]:text-body"
               >
                 <tabItem.Icon size={14} />
                 {tabItem.label}
@@ -242,6 +245,16 @@
                 {#if freeText === ""}
                   <div class="hint px-2 py-1.5">{t("noSessions")}</div>
                 {/if}
+              {/each}
+            </div>
+          </Tabs.Content>
+
+          <Tabs.Content value="devices" class="min-h-0 flex-1 pt-3">
+            <div class="h-[13.25rem] overflow-y-auto">
+              {#each deviceItems as session (session.key)}
+                {@render itemRow(session.key, session.displayName || session.key, "")}
+              {:else}
+                <div class="hint px-2 py-1.5">{t("noDevices")}</div>
               {/each}
             </div>
           </Tabs.Content>
