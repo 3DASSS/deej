@@ -54,6 +54,13 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
+      # the build scripts delegate to the Task build system (Taskfile.yml)
+      - name: Install Task
+        uses: arduino/setup-task@v2
+        with:
+          version: 3.x
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Build deej (amd64)
         run: scripts/windows/build-all.bat
         shell: cmd
@@ -118,6 +125,13 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libgtk-4-dev libwebkitgtk-6.0-dev
+
+      # the build scripts delegate to the Task build system (Taskfile.yml)
+      - name: Install Task
+        uses: arduino/setup-task@v2
+        with:
+          version: 3.x
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build deej
         run: scripts/linux/build-all.sh

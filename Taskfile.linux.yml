@@ -1,0 +1,44 @@
+version: "3"
+
+# Linux build tasks. Included by the root Taskfile.yml, which passes BIN_DIR,
+# LDFLAGS and VERSION_TAG. All tasks run from the repo root (dir: {{.ROOT_DIR}}).
+#
+# Two flavours of build exist:
+#   build          - the full GUI app; links the Wails GTK4/WebKitGTK backend via
+#                    cgo, so it needs a C compiler and the GTK/WebKit -dev packages
+#                    (or Docker) and cannot be cross-compiled with CGO_ENABLED=0.
+#   build:headless - a GUI-less daemon built with -tags headless. Compiles Wails
+#                    out entirely, so it is pure Go (CGO_ENABLED=0) and
+#                    cross-compilable to any GOOS/GOARCH. Controlled by config.yaml
+#                    only (no tray, no settings window).
+
+tasks:
+  frontend:
+    internal: true
+    dir: frontend
+    cmds:
+      - cmd: test -d node_modules || npm ci
+      - npm run build
+
+  build:
+    desc: Build the full GUI app (cgo, GTK4/WebKitGTK) -> deej-release
+    deps: [frontend]
+    env:
+      CGO_ENABLED: "1"
+    cmds:
+      - go build -o {{.BIN_DIR}}/deej-release -ldflags "-s -w {{.LDFLAGS}} -X main.buildType=release" ./pkg/deej/cmd
+
+  build:dev:
+    desc: Build the full GUI app with debug symbols -> deej-dev
+    deps: [frontend]
+    env:
+      CGO_ENABLED: "1"
+    cmds:
+      - go build -o {{.BIN_DIR}}/deej-dev -ldflags "{{.LDFLAGS}} -X main.buildType=dev" ./pkg/deej/cmd
+
+  build:headless:
+    desc: Build a GUI-less, cgo-free daemon (cross-compilable) -> deej-headless
+    env:
+      CGO_ENABLED: "0"
+    cmds:
+      - go build -tags headless -o {{.BIN_DIR}}/deej-headless -ldflags "-s -w {{.LDFLAGS}} -X main.buildType=release" ./pkg/deej/cmd
