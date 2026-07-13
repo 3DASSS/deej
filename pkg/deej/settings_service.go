@@ -1,6 +1,7 @@
 package deej
 
 import (
+	"errors"
 	"sort"
 
 	"go.bug.st/serial/enumerator"
@@ -30,6 +31,12 @@ type AppInfoDTO struct {
 	ConfigPath       string   `json:"configPath"`
 	ResolvedLanguage string   `json:"resolvedLanguage"`
 	SpecialTargets   []string `json:"specialTargets"`
+}
+
+// SessionInfoDTO describes a running audio session for target suggestions
+type SessionInfoDTO struct {
+	Key         string `json:"key"`
+	DisplayName string `json:"displayName"` // friendly name, may be empty
 }
 
 // StatusDTO describes the live connection state for the settings GUI
@@ -78,10 +85,20 @@ func (s *SettingsService) GetStatus() StatusDTO {
 	}
 }
 
-// GetSessionNames returns the current audio session keys, for slider mapping
-// suggestions
-func (s *SettingsService) GetSessionNames() []string {
-	return s.d.sessions.sessionKeys()
+// GetSessions returns the current audio sessions with friendly display
+// names, for slider mapping suggestions
+func (s *SettingsService) GetSessions() []SessionInfoDTO {
+	return s.d.sessions.sessionInfos()
+}
+
+// GetOBSInputs returns the input names of the connected OBS instance, for
+// slider mapping suggestions
+func (s *SettingsService) GetOBSInputs() ([]string, error) {
+	if s.d.obs == nil {
+		return nil, errors.New("OBS integration is not initialized")
+	}
+
+	return s.d.obs.ListInputs()
 }
 
 // ListSerialPorts enumerates the serial ports available on this machine

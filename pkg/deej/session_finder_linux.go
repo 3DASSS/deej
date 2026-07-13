@@ -407,12 +407,18 @@ func (sf *paSessionFinder) addSinkInputFromInfo(info *proto.GetSinkInputInfoRepl
 		}
 	}
 
+	// friendly name for the settings GUI, e.g. "Firefox"
+	var displayName string
+	if friendly, ok := info.Properties["application.name"]; ok {
+		displayName = friendly.String()
+	}
+
 	sf.mu.Lock()
 	if _, exists := sf.sinkInputs[info.SinkInputIndex]; exists {
 		sf.mu.Unlock()
 		return
 	}
-	session := newPASession(sf.sessionLogger, conn, info.SinkInputIndex, info.Channels, name.String())
+	session := newPASession(sf.sessionLogger, conn, info.SinkInputIndex, info.Channels, name.String(), displayName)
 	sf.sinkInputs[info.SinkInputIndex] = session
 	sf.mu.Unlock()
 

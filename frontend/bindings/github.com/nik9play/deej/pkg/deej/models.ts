@@ -86,6 +86,38 @@ export class SerialPortDTO {
 }
 
 /**
+ * SessionInfoDTO describes a running audio session for target suggestions
+ */
+export class SessionInfoDTO {
+    "key": string;
+
+    /**
+     * friendly name, may be empty
+     */
+    "displayName": string;
+
+    /** Creates a new SessionInfoDTO instance. */
+    constructor($$source: Partial<SessionInfoDTO> = {}) {
+        if (!("key" in $$source)) {
+            this["key"] = "";
+        }
+        if (!("displayName" in $$source)) {
+            this["displayName"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new SessionInfoDTO instance from a string or object.
+     */
+    static createFrom($$source: any = {}): SessionInfoDTO {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new SessionInfoDTO($$parsedSource as Partial<SessionInfoDTO>);
+    }
+}
+
+/**
  * SettingsDTO is a JSON-friendly mirror of the user config file, used by the settings GUI
  */
 export class SettingsDTO {

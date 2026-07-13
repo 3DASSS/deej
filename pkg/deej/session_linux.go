@@ -38,6 +38,7 @@ func newPASession(
 	sinkInputIndex uint32,
 	sinkInputChannels byte,
 	processName string,
+	displayName string,
 ) *paSession {
 
 	s := &paSession{
@@ -49,6 +50,7 @@ func newPASession(
 	s.processName = processName
 	s.name = processName
 	s.humanReadableDesc = processName
+	s.displayName = displayName
 
 	// use a self-identifying session name e.g. deej.sessions.chrome
 	s.logger = logger.Named(s.Key())

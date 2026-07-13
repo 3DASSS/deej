@@ -30,9 +30,10 @@ const settingsWindowName = "deej-settings"
 
 // wails events pushed to the settings window
 const (
-	eventSliders = "deej:sliders" // []float32, 0..1 per slider
-	eventState   = "deej:state"   // {connected bool, comPort string}
-	eventConfig  = "deej:config"  // no payload; config was (re)applied
+	eventSliders  = "deej:sliders"  // []float32, 0..1 per slider
+	eventState    = "deej:state"    // {connected bool, comPort string}
+	eventConfig   = "deej:config"   // no payload; config was (re)applied
+	eventSessions = "deej:sessions" // no payload; audio sessions changed
 )
 
 func getConfigItemText(d *Deej) (string, string) {
@@ -318,6 +319,7 @@ func (d *Deej) initializeTray(onDone func()) {
 					application.InvokeAsync(func() {
 						sessionsInfo.SetLabel(getSessionsCountString(d))
 					})
+					app.Event.Emit(eventSessions)
 
 				// config applied (GUI save or manual edit); this case must always
 				// be drained, since onConfigReloaded blocks on every consumer

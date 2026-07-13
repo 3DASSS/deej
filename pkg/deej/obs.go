@@ -3,6 +3,7 @@ package deej
 import (
 	"errors"
 	"fmt"
+	"sort"
 	"time"
 
 	"github.com/andreykaipov/goobs"
@@ -96,6 +97,29 @@ func (o *OBSClient) SetInputVolume(inputName string, percent float32) error {
 	o.logger.Debugw("Set OBS input volume", "input", inputName, "volume", percent)
 
 	return nil
+}
+
+// ListInputs returns the sorted names of all inputs in the connected OBS
+// instance, used by the settings GUI for target suggestions
+func (o *OBSClient) ListInputs() ([]string, error) {
+	conn, ok := o.reconnector.Current()
+	if !ok {
+		return nil, errors.New("not connected to OBS")
+	}
+
+	resp, err := conn.client.Inputs.GetInputList()
+	if err != nil {
+		return nil, fmt.Errorf("get OBS input list: %w", err)
+	}
+
+	names := make([]string, 0, len(resp.Inputs))
+	for _, input := range resp.Inputs {
+		names = append(names, input.InputName)
+	}
+
+	sort.Strings(names)
+
+	return names, nil
 }
 
 func (o *OBSClient) onUp(conn obsConn) {

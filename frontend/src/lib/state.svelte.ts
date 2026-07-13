@@ -1,5 +1,5 @@
 import { Events } from "@wailsio/runtime";
-import { SettingsDTO, SettingsService } from "../../bindings/github.com/nik9play/deej/pkg/deej";
+import { SessionInfoDTO, SettingsDTO, SettingsService } from "../../bindings/github.com/nik9play/deej/pkg/deej";
 
 // live application state, fed by wails events from the Go side
 export const app = $state({
@@ -7,6 +7,7 @@ export const app = $state({
   comPort: "",
   values: [] as number[], // 0..1 per slider, as sessions receive them
   settings: null as SettingsDTO | null,
+  sessions: [] as SessionInfoDTO[], // running audio sessions with friendly names
 });
 
 export async function refreshSettings(): Promise<void> {
@@ -16,6 +17,14 @@ export async function refreshSettings(): Promise<void> {
     app.settings = JSON.parse(JSON.stringify(loaded));
   } catch (err) {
     console.error("failed to load settings", err);
+  }
+}
+
+export async function refreshSessions(): Promise<void> {
+  try {
+    app.sessions = (await SettingsService.GetSessions()) ?? [];
+  } catch (err) {
+    console.error("failed to load sessions", err);
   }
 }
 
@@ -34,6 +43,9 @@ export function init(): () => void {
     Events.On("deej:config", () => {
       void refreshSettings();
     }),
+    Events.On("deej:sessions", () => {
+      void refreshSessions();
+    }),
   ];
 
   SettingsService.GetStatus()
@@ -45,6 +57,7 @@ export function init(): () => void {
     .catch((err) => console.error("failed to load status", err));
 
   void refreshSettings();
+  void refreshSessions();
 
   return () => offs.forEach((off) => off());
 }

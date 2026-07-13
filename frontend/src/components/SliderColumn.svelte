@@ -1,5 +1,6 @@
 <script lang="ts">
   import { t } from "../lib/i18n";
+  import { targetLabel } from "../lib/targets";
 
   let {
     slider,
@@ -40,9 +41,9 @@
       {#if targets.length === 0}
         {t("unmapped")}
       {:else if targets.length === 1}
-        {targets[0]}
+        {targetLabel(targets[0])}
       {:else}
-        {targets[0]} +{targets.length - 1}
+        {targetLabel(targets[0])} +{targets.length - 1}
       {/if}
     </span>
   </button>

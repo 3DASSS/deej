@@ -9,6 +9,7 @@ export {
 export {
     AppInfoDTO,
     SerialPortDTO,
+    SessionInfoDTO,
     SettingsDTO,
     SliderMappingEntry,
     StatusDTO

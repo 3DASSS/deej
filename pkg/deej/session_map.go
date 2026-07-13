@@ -448,20 +448,27 @@ func (m *sessionMap) getSessionCount() int {
 	return count
 }
 
-// sessionKeys returns a sorted copy of the current session keys, used by the
-// settings GUI for slider mapping suggestions
-func (m *sessionMap) sessionKeys() []string {
+// sessionInfos returns a sorted copy of the current session keys with
+// friendly display names, used by the settings GUI for target suggestions
+func (m *sessionMap) sessionInfos() []SessionInfoDTO {
 	m.lock.Lock()
 	defer m.lock.Unlock()
 
-	keys := make([]string, 0, len(m.m))
-	for key := range m.m {
-		keys = append(keys, key)
+	infos := make([]SessionInfoDTO, 0, len(m.m))
+	for key, sessions := range m.m {
+		info := SessionInfoDTO{Key: key}
+		for _, session := range sessions {
+			if name := session.DisplayName(); name != "" {
+				info.DisplayName = name
+				break
+			}
+		}
+		infos = append(infos, info)
 	}
 
-	sort.Strings(keys)
+	sort.Slice(infos, func(i, j int) bool { return infos[i].Key < infos[j].Key })
 
-	return keys
+	return infos
 }
 
 func (m *sessionMap) String() string {

@@ -25,12 +25,22 @@ export function GetAppInfo(): $CancellablePromise<$models.AppInfoDTO> {
 }
 
 /**
- * GetSessionNames returns the current audio session keys, for slider mapping
- * suggestions
+ * GetOBSInputs returns the input names of the connected OBS instance, for
+ * slider mapping suggestions
  */
-export function GetSessionNames(): $CancellablePromise<string[]> {
-    return $Call.ByID(2577377956).then(($result: any) => {
+export function GetOBSInputs(): $CancellablePromise<string[]> {
+    return $Call.ByID(1620740735).then(($result: any) => {
         return $$createType1($result);
+    });
+}
+
+/**
+ * GetSessions returns the current audio sessions with friendly display
+ * names, for slider mapping suggestions
+ */
+export function GetSessions(): $CancellablePromise<$models.SessionInfoDTO[]> {
+    return $Call.ByID(1202968053).then(($result: any) => {
+        return $$createType3($result);
     });
 }
 
@@ -39,7 +49,7 @@ export function GetSessionNames(): $CancellablePromise<string[]> {
  */
 export function GetSettings(): $CancellablePromise<$models.SettingsDTO> {
     return $Call.ByID(1935164325).then(($result: any) => {
-        return $$createType2($result);
+        return $$createType4($result);
     });
 }
 
@@ -49,7 +59,7 @@ export function GetSettings(): $CancellablePromise<$models.SettingsDTO> {
  */
 export function GetStatus(): $CancellablePromise<$models.StatusDTO> {
     return $Call.ByID(4223089242).then(($result: any) => {
-        return $$createType3($result);
+        return $$createType5($result);
     });
 }
 
@@ -58,7 +68,7 @@ export function GetStatus(): $CancellablePromise<$models.StatusDTO> {
  */
 export function ListSerialPorts(): $CancellablePromise<$models.SerialPortDTO[]> {
     return $Call.ByID(102515344).then(($result: any) => {
-        return $$createType5($result);
+        return $$createType7($result);
     });
 }
 
@@ -73,7 +83,9 @@ export function SaveSettings(dto: $models.SettingsDTO): $CancellablePromise<void
 // Private type creation functions
 const $$createType0 = $models.AppInfoDTO.createFrom;
 const $$createType1 = $Create.Array($Create.Any);
-const $$createType2 = $models.SettingsDTO.createFrom;
-const $$createType3 = $models.StatusDTO.createFrom;
-const $$createType4 = $models.SerialPortDTO.createFrom;
-const $$createType5 = $Create.Array($$createType4);
+const $$createType2 = $models.SessionInfoDTO.createFrom;
+const $$createType3 = $Create.Array($$createType2);
+const $$createType4 = $models.SettingsDTO.createFrom;
+const $$createType5 = $models.StatusDTO.createFrom;
+const $$createType6 = $models.SerialPortDTO.createFrom;
+const $$createType7 = $Create.Array($$createType6);

@@ -9,6 +9,8 @@ import (
 	ps "github.com/mitchellh/go-ps"
 	wca "github.com/moutend/go-wca/pkg/wca"
 	"go.uber.org/zap"
+
+	"github.com/nik9play/deej/pkg/deej/util"
 )
 
 var errNoSuchProcess = errors.New("no such process")
@@ -75,6 +77,11 @@ func newWCASession(
 		s.processName = process.Executable()
 		s.name = s.processName
 		s.humanReadableDesc = fmt.Sprintf("%s (pid %d)", s.processName, s.pid)
+
+		// best-effort friendly name for the settings GUI
+		if desc, err := util.GetProcessFileDescription(pid); err == nil {
+			s.displayName = desc
+		}
 	}
 
 	// use a self-identifying session name e.g. deej.sessions.chrome
