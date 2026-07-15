@@ -13,7 +13,7 @@
   <Checkbox.Root
     {id}
     bind:checked
-    class="flex size-4 shrink-0 cursor-pointer items-center justify-center rounded border border-edge bg-field transition-colors data-[state=checked]:border-accent data-[state=checked]:bg-accent"
+    class="flex size-4 shrink-0 items-center justify-center rounded border border-edge bg-field transition-colors data-[state=checked]:border-accent data-[state=checked]:bg-accent"
   >
     {#snippet children({ checked: isChecked })}
       {#if isChecked}
@@ -21,5 +21,5 @@
       {/if}
     {/snippet}
   </Checkbox.Root>
-  <label class="cursor-pointer text-sm" for={id}>{label}</label>
+  <label class="text-sm" for={id}>{label}</label>
 </div>

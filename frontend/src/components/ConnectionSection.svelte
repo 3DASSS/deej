@@ -36,30 +36,26 @@
   ];
 </script>
 
-<section class="card">
-  <h2 class="mb-3 text-sm font-semibold">{m.connection()}</h2>
-
-  <div class="flex flex-wrap gap-3.5">
-    <div class="flex min-w-40 flex-1 flex-col gap-1">
-      <label class="label" for="com-port">{m.comPort()}</label>
-      <div class="flex gap-1.5">
-        <div class="flex-1">
-          <FieldCombobox id="com-port" bind:value={settings.comPort} items={portItems} />
-        </div>
-        <button class="btn px-2.5" type="button" onclick={refreshPorts} title={m.refreshPorts()} aria-label={m.refreshPorts()}>
-          <RefreshCw size={14} />
-        </button>
+<section>
+  <div class="flex flex-col gap-1">
+    <label class="label" for="com-port">{m.comPort()}</label>
+    <div class="flex gap-1.5">
+      <div class="flex-1">
+        <FieldCombobox id="com-port" bind:value={settings.comPort} items={portItems} />
       </div>
+      <button class="btn px-2.5" type="button" onclick={refreshPorts} title={m.refreshPorts()} aria-label={m.refreshPorts()}>
+        <RefreshCw size={14} />
+      </button>
     </div>
+  </div>
 
-    <div class="flex min-w-40 flex-1 flex-col gap-1">
-      <label class="label" for="baud-rate">{m.baudRate()}</label>
-      <FieldCombobox
-        id="baud-rate"
-        items={baudItems}
-        bind:value={() => String(settings.baudRate || ""), (v) => (settings.baudRate = parseInt(v, 10) || 0)}
-      />
-    </div>
+  <div class="mt-3 flex flex-col gap-1">
+    <label class="label" for="baud-rate">{m.baudRate()}</label>
+    <FieldCombobox
+      id="baud-rate"
+      items={baudItems}
+      bind:value={() => String(settings.baudRate || ""), (v) => (settings.baudRate = parseInt(v, 10) || 0)}
+    />
   </div>
 
   {#if settings.comPort === "auto"}

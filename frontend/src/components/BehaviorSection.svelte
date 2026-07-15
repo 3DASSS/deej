@@ -15,9 +15,7 @@
   ]);
 </script>
 
-<section class="card">
-  <h2 class="mb-3 text-sm font-semibold">{m.behavior()}</h2>
-
+<section>
   <div class="mb-3">
     <FieldCheckbox
       id="invert-sliders"

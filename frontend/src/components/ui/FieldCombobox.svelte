@@ -58,20 +58,20 @@
         search = e.currentTarget.value;
       }}
     />
-    <Combobox.Trigger class="absolute top-1/2 right-2 -translate-y-1/2 cursor-pointer text-muted" tabindex={-1}>
+    <Combobox.Trigger class="absolute top-1/2 right-2 -translate-y-1/2 text-muted" tabindex={-1}>
       <ChevronsUpDown size={14} />
     </Combobox.Trigger>
   </div>
   <Combobox.Portal>
     <Combobox.Content
-      class="z-60 max-h-56 w-(--bits-combobox-anchor-width) overflow-y-auto rounded-md border border-edge bg-card p-1 shadow-lg"
+      class="anim-popover z-60 max-h-56 w-(--bits-combobox-anchor-width) overflow-y-auto rounded-md border border-edge bg-card p-1 shadow-lg"
       sideOffset={4}
     >
       {#each filtered as item (item.value)}
         <Combobox.Item
           value={item.value}
           label={item.value}
-          class="flex cursor-pointer items-center justify-between gap-2 rounded px-2 py-1.5 text-sm data-highlighted:bg-chip"
+          class="flex items-center justify-between gap-2 rounded px-2 py-1.5 text-sm data-highlighted:bg-chip"
         >
           {#snippet children({ selected })}
             <span class="truncate">{item.value}</span>

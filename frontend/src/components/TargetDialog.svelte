@@ -144,7 +144,7 @@
 {#snippet itemRow(target: string, label: string, hint: string)}
   <button
     type="button"
-    class="flex w-full cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-left text-sm transition-colors hover:bg-chip"
+    class="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm transition-colors hover:bg-chip"
     onclick={() => toggle(target)}
   >
     <span class="flex min-w-0 flex-1 flex-col">
@@ -161,14 +161,14 @@
 
 <Dialog.Root bind:open>
   <Dialog.Portal>
-    <Dialog.Overlay class="fixed inset-0 z-40 bg-black/40" />
+    <Dialog.Overlay class="anim-overlay fixed inset-0 z-40 bg-black/40 backdrop-blur-sm" />
     <Dialog.Content
-      class="fixed top-1/2 left-1/2 z-50 flex max-h-[88dvh] w-[min(480px,92vw)] -translate-x-1/2 -translate-y-1/2 flex-col rounded-lg border border-edge bg-surface shadow-2xl"
+      class="anim-dialog fixed top-1/2 left-1/2 z-50 flex h-[min(600px,88dvh)] w-[min(620px,92vw)] -translate-x-1/2 -translate-y-1/2 flex-col rounded-lg border border-edge bg-surface shadow-2xl"
     >
       <div class="flex shrink-0 items-center justify-between border-b border-edge px-4 py-2.5">
         <Dialog.Title class="text-sm font-semibold">{m.targetsFor()} {slider}</Dialog.Title>
         <Dialog.Close
-          class="cursor-pointer rounded p-1 text-muted transition-colors hover:bg-chip hover:text-body"
+          class="rounded p-1 text-muted transition-colors hover:bg-chip hover:text-body"
           aria-label={m.close()}
         >
           <X size={15} />
@@ -185,7 +185,7 @@
               {targetLabel(target)}
               <button
                 type="button"
-                class="cursor-pointer rounded-full p-0.5 text-muted hover:text-danger"
+                class="rounded-full p-0.5 text-muted hover:text-danger"
                 title={m.removeTarget()}
                 aria-label={m.removeTarget()}
                 onclick={() => removeTarget(target)}
@@ -203,7 +203,7 @@
             {#each [{ value: "apps", label: m.tabApps(), Icon: AppWindow }, { value: "devices", label: m.tabDevices(), Icon: Speaker }, { value: "special", label: m.tabSpecial(), Icon: Sparkles }, { value: "obs", label: m.tabObs(), Icon: Video }] as tabItem (tabItem.value)}
               <Tabs.Trigger
                 value={tabItem.value}
-                class="-mb-px flex cursor-pointer items-center gap-1.5 border-b-2 border-transparent px-2.5 py-1.5 text-sm text-muted transition-colors hover:text-body data-[state=active]:border-accent data-[state=active]:text-body"
+                class="-mb-px flex items-center gap-1.5 border-b-2 border-transparent px-2.5 py-1.5 text-sm text-muted transition-colors hover:text-body data-[state=active]:border-accent data-[state=active]:text-body"
               >
                 <tabItem.Icon size={14} />
                 {tabItem.label}
@@ -224,11 +224,11 @@
                 }
               }}
             />
-            <div class="h-44 overflow-y-auto">
+            <div class="min-h-0 flex-1 overflow-y-auto">
               {#if freeText !== ""}
                 <button
                   type="button"
-                  class="flex w-full cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-left text-sm text-accent transition-colors hover:bg-chip"
+                  class="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm text-accent transition-colors hover:bg-chip"
                   onclick={addFreeText}
                 >
                   <Plus size={14} class="shrink-0" />
@@ -249,8 +249,8 @@
             </div>
           </Tabs.Content>
 
-          <Tabs.Content value="devices" class="min-h-0 flex-1 pt-3">
-            <div class="h-[13.25rem] overflow-y-auto">
+          <Tabs.Content value="devices" class="flex min-h-0 flex-1 flex-col pt-3">
+            <div class="min-h-0 flex-1 overflow-y-auto">
               {#each deviceItems as session (session.key)}
                 {@render itemRow(session.key, session.displayName || session.key, "")}
               {:else}
@@ -259,8 +259,8 @@
             </div>
           </Tabs.Content>
 
-          <Tabs.Content value="special" class="min-h-0 flex-1 pt-3">
-            <div class="h-[13.25rem] overflow-y-auto">
+          <Tabs.Content value="special" class="flex min-h-0 flex-1 flex-col pt-3">
+            <div class="min-h-0 flex-1 overflow-y-auto">
               {#each specialTargets as target (target)}
                 {@render itemRow(target, specialTargetLabel(target) ?? target, specialTargetDescription(target) ?? "")}
               {/each}
@@ -294,7 +294,7 @@
                   <Plus size={14} />
                 </button>
               </div>
-              <div class="h-44 overflow-y-auto">
+              <div class="min-h-0 flex-1 overflow-y-auto">
                 {#if obsError}
                   <div class="hint px-2 py-1.5">{m.obsNotConnected()}</div>
                 {:else}

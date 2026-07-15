@@ -6,9 +6,7 @@
   let { settings }: { settings: SettingsDTO } = $props();
 </script>
 
-<section class="card">
-  <h2 class="mb-3 text-sm font-semibold">{m.obs()}</h2>
-
+<section>
   <FieldCheckbox id="obs-enabled" bind:checked={settings.obsEnabled} label={m.obsEnabled()} />
   <div class="hint mt-2">{m.obsHint()}</div>
 

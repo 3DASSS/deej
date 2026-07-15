@@ -26,7 +26,7 @@
   {/if}
 
   <div
-    class="flex flex-1 items-stretch justify-center gap-5 overflow-x-auto px-6 py-5 transition-opacity {app.connected
+    class="flex flex-1 items-center justify-center gap-5 overflow-x-auto px-6 py-5 transition-opacity {app.connected
       ? ''
       : 'opacity-40 grayscale'}"
   >

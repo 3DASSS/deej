@@ -79,7 +79,7 @@
     </button>
     <button
       type="button"
-      class="flex w-11 items-center justify-center text-muted transition-colors hover:bg-danger hover:text-white"
+      class="flex w-11 items-center justify-center text-muted transition-colors hover:bg-body hover:text-surface"
       title={m.close()}
       aria-label={m.close()}
       onclick={() => Window.Close()}

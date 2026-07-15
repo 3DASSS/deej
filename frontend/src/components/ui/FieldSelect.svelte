@@ -16,13 +16,13 @@
 </script>
 
 <Select.Root type="single" bind:value {items}>
-  <Select.Trigger {id} aria-label={ariaLabel} class="input flex cursor-pointer items-center justify-between gap-2 text-left">
+  <Select.Trigger {id} aria-label={ariaLabel} class="input flex items-center justify-between gap-2 text-left">
     <span class="truncate">{selectedLabel}</span>
     <ChevronDown size={14} class="shrink-0 text-muted" />
   </Select.Trigger>
   <Select.Portal>
     <Select.Content
-      class="z-60 max-h-56 w-(--bits-select-anchor-width) overflow-y-auto rounded-md border border-edge bg-card p-1 shadow-lg"
+      class="anim-popover z-60 max-h-56 w-(--bits-select-anchor-width) overflow-y-auto rounded-md border border-edge bg-card p-1 shadow-lg"
       sideOffset={4}
     >
       <Select.Viewport>
@@ -30,7 +30,7 @@
           <Select.Item
             value={item.value}
             label={item.label}
-            class="flex cursor-pointer items-center justify-between gap-2 rounded px-2 py-1.5 text-sm data-highlighted:bg-chip"
+            class="flex items-center justify-between gap-2 rounded px-2 py-1.5 text-sm data-highlighted:bg-chip"
           >
             {#snippet children({ selected })}
               <span class="truncate">{item.label}</span>

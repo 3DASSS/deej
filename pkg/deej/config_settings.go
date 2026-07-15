@@ -52,11 +52,13 @@ func (dto *SettingsDTO) Validate() error {
 		return fmt.Errorf("baud rate must be a positive number")
 	}
 
-	if _, err := parseHexWord(dto.ComVID); err != nil {
+	// an empty VID/PID means "use the built-in default", so only validate
+	// non-empty values
+	if _, err := parseHexWordOrDefault(dto.ComVID, defaultVID); err != nil {
 		return fmt.Errorf("com vid: %w", err)
 	}
 
-	if _, err := parseHexWord(dto.ComPID); err != nil {
+	if _, err := parseHexWordOrDefault(dto.ComPID, defaultPID); err != nil {
 		return fmt.Errorf("com pid: %w", err)
 	}
 
@@ -95,6 +97,18 @@ func parseHexWord(value string) (uint64, error) {
 	}
 
 	return parsed, nil
+}
+
+// parseHexWordOrDefault behaves like parseHexWord, but returns the given
+// default for an empty (or whitespace-only) value. This lets the GUI leave the
+// VID/PID fields blank to fall back to the built-in defaults, mirroring a
+// config file that omits (or comments out) the com_vid/com_pid keys
+func parseHexWordOrDefault(value string, def uint64) (uint64, error) {
+	if strings.TrimSpace(value) == "" {
+		return def, nil
+	}
+
+	return parseHexWord(value)
 }
 
 // UserSettings returns the current contents of the user config file as a DTO.
@@ -146,8 +160,8 @@ func (cc *CanonicalConfig) SaveUserSettings(dto SettingsDTO, localizer *i18n.Loc
 		return err
 	}
 
-	vid, _ := parseHexWord(dto.ComVID)
-	pid, _ := parseHexWord(dto.ComPID)
+	vid, _ := parseHexWordOrDefault(dto.ComVID, defaultVID)
+	pid, _ := parseHexWordOrDefault(dto.ComPID, defaultPID)
 
 	data, err := os.ReadFile(cc.configPath)
 	if err != nil {

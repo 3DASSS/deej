@@ -1,38 +1,38 @@
 @import "tailwindcss";
 
-/* theme tokens; light values with dark overrides via prefers-color-scheme,
-   exposed to tailwind through @theme inline */
+/* theme tokens; monochrome black & white, light values with dark overrides via
+   prefers-color-scheme, exposed to tailwind through @theme inline */
 :root {
-  --ui-surface: #f4f4f6;
+  --ui-surface: #fafafa;
   --ui-card: #ffffff;
-  --ui-body: #1c1c22;
-  --ui-muted: #6b6b76;
-  --ui-edge: #d9d9e0;
-  --ui-accent: #4a6cf7;
+  --ui-body: #0a0a0a;
+  --ui-muted: #737373;
+  --ui-edge: #e4e4e4;
+  --ui-accent: #0a0a0a;
   --ui-on-accent: #ffffff;
-  --ui-danger: #d64550;
-  --ui-success: #2e9e5b;
+  --ui-danger: #171717;
+  --ui-success: #171717;
   --ui-field: #ffffff;
-  --ui-chip: #eceef8;
-  --ui-track: #e2e2e8;
+  --ui-chip: #f0f0f0;
+  --ui-track: #e4e4e4;
 
   color-scheme: light dark;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --ui-surface: #1e1e24;
-    --ui-card: #27272f;
-    --ui-body: #e8e8ec;
-    --ui-muted: #9a9aa6;
-    --ui-edge: #3a3a44;
-    --ui-accent: #6f8bff;
-    --ui-on-accent: #ffffff;
-    --ui-danger: #ff6b75;
-    --ui-success: #4fc47f;
-    --ui-field: #1e1e24;
-    --ui-chip: #33333e;
-    --ui-track: #33333e;
+    --ui-surface: #0a0a0a;
+    --ui-card: #161616;
+    --ui-body: #f2f2f2;
+    --ui-muted: #8a8a8a;
+    --ui-edge: #2a2a2a;
+    --ui-accent: #f2f2f2;
+    --ui-on-accent: #0a0a0a;
+    --ui-danger: #e5e5e5;
+    --ui-success: #e5e5e5;
+    --ui-field: #0f0f0f;
+    --ui-chip: #1e1e1e;
+    --ui-track: #262626;
   }
 }
 
@@ -71,6 +71,15 @@
     flex-direction: column;
   }
 
+  /* never show the text/hand cursors; everything is a default arrow */
+  button,
+  a,
+  [role="button"],
+  label,
+  summary {
+    cursor: default;
+  }
+
   ::-webkit-scrollbar {
     width: 8px;
     height: 8px;
@@ -99,15 +108,129 @@
     @apply text-xs text-muted;
   }
 
+  /* macOS-style secondary button: semitransparent white/grey gradient with a
+     bright top highlight. borderless; instant hover/press, no transition. */
   .btn {
-    @apply cursor-pointer rounded-md border border-edge bg-card px-3.5 py-1.5 text-sm text-body transition-colors hover:border-accent focus-visible:outline-2 focus-visible:outline-accent disabled:cursor-default disabled:opacity-50;
+    @apply rounded-md bg-linear-to-b from-white/90 to-neutral-100/70 px-3.5 py-1.5 text-sm font-medium text-body
+      shadow-[inset_0_1px_0_rgb(255_255_255/0.9),0_1px_2px_rgb(0_0_0/0.12)]
+      enabled:hover:from-white enabled:hover:to-neutral-200/80
+      enabled:active:from-neutral-100/90 enabled:active:to-neutral-200/90
+      focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-50
+      dark:from-white/10 dark:to-white/5
+      dark:shadow-[inset_0_1px_0_rgb(255_255_255/0.2),0_1px_2px_rgb(0_0_0/0.45)]
+      dark:enabled:hover:from-white/20 dark:enabled:hover:to-white/10
+      dark:enabled:active:from-white/5 dark:enabled:active:to-white/5;
   }
 
+  /* blue-violet gradient accent, identical in light and dark */
   .btn-primary {
-    @apply border-accent bg-accent font-semibold text-on-accent hover:border-accent;
+    @apply bg-linear-to-b from-violet-500 to-indigo-600 font-semibold text-white
+      shadow-[inset_0_1px_0_rgb(255_255_255/0.35),0_1px_2px_rgb(60_50_160/0.4)]
+      enabled:hover:from-violet-400 enabled:hover:to-indigo-500
+      enabled:active:from-violet-600 enabled:active:to-indigo-700
+      enabled:active:shadow-[inset_0_1px_3px_rgb(38_30_120/0.45)];
   }
 
   .card {
     @apply rounded-lg border border-edge bg-card p-4;
+  }
+}
+
+/* Fluent-style enter/exit motion. bits-ui delays unmount until these finish,
+   so the same classes drive both open and close. */
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes fade-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+/* Only animate `transform` (scale + slide); Tailwind v4 centers the dialog with
+   the independent `translate` property, so the two compose without conflict. */
+@keyframes dialog-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes dialog-out {
+  from {
+    opacity: 1;
+    transform: none;
+  }
+  to {
+    opacity: 0;
+    transform: translateY(8px) scale(0.96);
+  }
+}
+
+@keyframes popover-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes popover-out {
+  from {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.98);
+  }
+}
+
+/* Fluent motion curve: decelerate on the way in, accelerate on the way out. */
+.anim-overlay[data-state="open"] {
+  animation: fade-in 160ms cubic-bezier(0.1, 0.9, 0.2, 1);
+}
+.anim-overlay[data-state="closed"] {
+  animation: fade-out 130ms cubic-bezier(0.4, 0, 1, 1);
+}
+
+.anim-dialog[data-state="open"] {
+  animation: dialog-in 200ms cubic-bezier(0.1, 0.9, 0.2, 1);
+}
+.anim-dialog[data-state="closed"] {
+  animation: dialog-out 150ms cubic-bezier(0.4, 0, 1, 1);
+}
+
+/* Popovers use "open"; tooltips use "delayed-open"/"instant-open". */
+.anim-popover[data-state="open"],
+.anim-popover[data-state="delayed-open"],
+.anim-popover[data-state="instant-open"] {
+  animation: popover-in 150ms cubic-bezier(0.1, 0.9, 0.2, 1);
+}
+.anim-popover[data-state="closed"] {
+  animation: popover-out 110ms cubic-bezier(0.4, 0, 1, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .anim-overlay[data-state],
+  .anim-dialog[data-state],
+  .anim-popover[data-state] {
+    animation-duration: 1ms;
   }
 }

@@ -12,9 +12,7 @@
   ]);
 </script>
 
-<section class="card">
-  <h2 class="mb-3 text-sm font-semibold">{m.language()}</h2>
-
+<section>
   <div class="flex max-w-xs flex-col gap-1">
     <FieldSelect id="language" ariaLabel={m.language()} bind:value={settings.language} items={languageItems} />
     <div class="hint">{m.languageHint()}</div>

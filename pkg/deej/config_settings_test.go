@@ -185,6 +185,14 @@ func TestSettingsDTOValidate(t *testing.T) {
 		t.Errorf("valid DTO rejected: %v", err)
 	}
 
+	// empty VID/PID mean "use the built-in default" and must be accepted
+	emptyVIDPID := valid
+	emptyVIDPID.ComVID = ""
+	emptyVIDPID.ComPID = ""
+	if err := emptyVIDPID.Validate(); err != nil {
+		t.Errorf("empty VID/PID rejected: %v", err)
+	}
+
 	cases := []struct {
 		name   string
 		mutate func(*SettingsDTO)
