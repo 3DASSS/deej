@@ -8,7 +8,8 @@ venv/
 *.exe
 deej-dev
 deej-release
-build/
+build/*
+!build/config.yml
 releases/
 *.bin
 logs/

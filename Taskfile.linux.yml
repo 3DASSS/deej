@@ -36,6 +36,20 @@ tasks:
     cmds:
       - go build -o {{.BIN_DIR}}/deej-dev -ldflags "{{.LDFLAGS}} -X main.buildType=dev" ./pkg/deej/cmd
 
+  build:dev:live:
+    desc: Build deej-dev without rebuilding the embedded frontend (for `wails3 dev`)
+    # No `frontend` dep: in dev mode assets are served by Vite via
+    # FRONTEND_DEVSERVER_URL, and the //go:embed only needs dist/.gitkeep to exist.
+    env:
+      CGO_ENABLED: "1"
+    cmds:
+      - go build -o {{.BIN_DIR}}/deej-dev -ldflags "{{.LDFLAGS}} -X main.buildType=dev" ./pkg/deej/cmd
+
+  run:dev:
+    desc: Run the already-built dev binary (inherits FRONTEND_DEVSERVER_URL under `wails3 dev`)
+    cmds:
+      - "{{.BIN_DIR}}/deej-dev"
+
   build:headless:
     desc: Build a GUI-less, cgo-free daemon (cross-compilable) -> deej-headless
     env:
