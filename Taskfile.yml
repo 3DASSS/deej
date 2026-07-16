@@ -46,7 +46,7 @@ tasks:
   generate:bindings:
     desc: Regenerate the Wails Go->TS bindings (requires the wails3 CLI)
     cmds:
-      - wails3 generate bindings -silent
+      - wails3 generate bindings -ts -silent ./pkg/...
 
   build:
     desc: Build deej for the current OS (release)
