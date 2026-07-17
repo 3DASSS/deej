@@ -47,7 +47,7 @@ export function GetSessions(): $CancellablePromise<$models.SessionInfoDTO[]> {
 /**
  * GetSettings returns the current contents of the user config file
  */
-export function GetSettings(): $CancellablePromise<$models.SettingsDTO> {
+export function GetSettings(): $CancellablePromise<$models.Settings> {
     return $Call.ByID(1935164325).then(($result: any) => {
         return $$createType4($result);
     });
@@ -76,8 +76,8 @@ export function ListSerialPorts(): $CancellablePromise<$models.SerialPortDTO[]> 
  * SaveSettings validates and writes the given settings to the user config
  * file, applying them immediately
  */
-export function SaveSettings(dto: $models.SettingsDTO): $CancellablePromise<void> {
-    return $Call.ByID(523154580, dto);
+export function SaveSettings(settings: $models.Settings): $CancellablePromise<void> {
+    return $Call.ByID(523154580, settings);
 }
 
 // Private type creation functions
@@ -85,7 +85,7 @@ const $$createType0 = $models.AppInfoDTO.createFrom;
 const $$createType1 = $Create.Array($Create.Any);
 const $$createType2 = $models.SessionInfoDTO.createFrom;
 const $$createType3 = $Create.Array($$createType2);
-const $$createType4 = $models.SettingsDTO.createFrom;
+const $$createType4 = $models.Settings.createFrom;
 const $$createType5 = $models.StatusDTO.createFrom;
 const $$createType6 = $models.SerialPortDTO.createFrom;
 const $$createType7 = $Create.Array($$createType6);

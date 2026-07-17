@@ -1,12 +1,12 @@
 import { Events } from "@wailsio/runtime";
-import { SessionInfoDTO, SettingsDTO, SettingsService } from "../../bindings/github.com/nik9play/deej/pkg/deej";
+import { SessionInfoDTO, Settings, SettingsService } from "../../bindings/github.com/nik9play/deej/pkg/deej";
 
 // live application state, fed by wails events from the Go side
 export const app = $state({
   connected: false,
   comPort: "",
   values: [] as number[], // 0..1 per slider, as sessions receive them
-  settings: null as SettingsDTO | null,
+  settings: null as Settings | null,
   sessions: [] as SessionInfoDTO[], // running audio sessions with friendly names
 });
 

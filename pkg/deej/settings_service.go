@@ -48,14 +48,14 @@ type StatusDTO struct {
 }
 
 // GetSettings returns the current contents of the user config file
-func (s *SettingsService) GetSettings() SettingsDTO {
+func (s *SettingsService) GetSettings() Settings {
 	return s.d.config.UserSettings()
 }
 
 // SaveSettings validates and writes the given settings to the user config
 // file, applying them immediately
-func (s *SettingsService) SaveSettings(dto SettingsDTO) error {
-	return s.d.config.SaveUserSettings(dto, s.d.localizer)
+func (s *SettingsService) SaveSettings(settings Settings) error {
+	return s.d.config.SaveUserSettings(settings, s.d.localizer)
 }
 
 // GetAppInfo returns version and localization info along with the list of

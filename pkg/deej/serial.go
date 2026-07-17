@@ -26,7 +26,7 @@ import (
 type serialConn struct {
 	port     serial.Port
 	comPort  string
-	connInfo ConnectionInfo
+	connInfo COMSettings
 }
 
 // SerialIO provides a deej-aware abstraction layer to managing serial I/O
@@ -37,7 +37,6 @@ type SerialIO struct {
 	reconnector *reconnect.Reconnector[serialConn]
 
 	stateLock           sync.Mutex
-	comPortToUse        string
 	lastKnownNumSliders int
 	currentSliderValues []int
 
@@ -47,8 +46,6 @@ type SerialIO struct {
 
 var ErrNoSerialPorts = errors.New("no serial ports found")
 var ErrAutoPortNotFound = errors.New("can't autodetect com port")
-
-// var allowedVIDPIDs = []VIDPID{{0x1A86, 0x7523}}
 
 // SliderMoveEvent represents a single slider move captured by deej
 type SliderMoveEvent struct {
@@ -92,8 +89,9 @@ func NewSerialIO(deej *Deej, logger *zap.SugaredLogger) (*SerialIO, error) {
 func (sio *SerialIO) dial() (serialConn, error) {
 	config := sio.deej.config.Values()
 
-	comPort := config.ConnectionInfo.COMPort
-	allowedVIDPID := config.AutoSearchVIDPID
+	comPort := config.COM.Port
+	wantVID, _ := config.COM.VID.Value()
+	wantPID, _ := config.COM.PID.Value()
 
 	if comPort == "auto" {
 		sio.logger.Debugw("Trying to autodetect serial port")
@@ -116,7 +114,7 @@ func (sio *SerialIO) dial() (serialConn, error) {
 				vid, _ := strconv.ParseUint(port.VID, 16, 16)
 				pid, _ := strconv.ParseUint(port.PID, 16, 16)
 
-				if vid == allowedVIDPID.VID && pid == allowedVIDPID.PID {
+				if uint16(vid) == wantVID && uint16(pid) == wantPID {
 					sio.logger.Debugw("Found COM port", "com", port.Name, "vid", port.VID, "pid", port.PID)
 
 					comPort = port.Name
@@ -133,7 +131,7 @@ func (sio *SerialIO) dial() (serialConn, error) {
 	}
 
 	mode := serial.Mode{
-		BaudRate: config.ConnectionInfo.BaudRate,
+		BaudRate: config.COM.BaudRate,
 		DataBits: 8,
 		StopBits: serial.OneStopBit,
 	}
@@ -169,16 +167,12 @@ func (sio *SerialIO) dial() (serialConn, error) {
 	return serialConn{
 		port:     port,
 		comPort:  comPort,
-		connInfo: config.ConnectionInfo,
+		connInfo: config.COM,
 	}, nil
 }
 
 func (sio *SerialIO) onUp(conn serialConn) {
-	sio.stateLock.Lock()
-	sio.comPortToUse = conn.comPort
-	sio.stateLock.Unlock()
-
-	if sio.deej.config.Values().ConnectionInfo != conn.connInfo {
+	if sio.deej.config.Values().COM != conn.connInfo {
 		sio.logger.Info("Connection parameters changed while connecting, renewing connection")
 		sio.reconnector.Reconnect(errors.New("connection parameters changed during dial"))
 		return
@@ -242,11 +236,14 @@ func (sio *SerialIO) GetState() bool {
 	return sio.reconnector.Connected()
 }
 
+// CurrentComPort returns the port the live connection resolved to, or the
+// configured port (verbatim, including "auto") while disconnected
 func (sio *SerialIO) CurrentComPort() string {
-	sio.stateLock.Lock()
-	defer sio.stateLock.Unlock()
+	if conn, ok := sio.reconnector.Current(); ok {
+		return conn.comPort
+	}
 
-	return sio.comPortToUse
+	return sio.deej.config.Values().COM.Port
 }
 
 func (sio *SerialIO) CurrentSliderValues() []int {
@@ -286,9 +283,9 @@ func (sio *SerialIO) CurrentSliderPercentValues() []float32 {
 func (sio *SerialIO) Start() {
 	config := sio.deej.config.Values()
 	sio.logger.Infow("Trying serial connection",
-		"port", config.ConnectionInfo.COMPort,
-		"vid", fmt.Sprintf("%X", config.AutoSearchVIDPID.VID),
-		"pid", fmt.Sprintf("%X", config.AutoSearchVIDPID.PID),
+		"port", config.COM.Port,
+		"vid", string(config.COM.VID),
+		"pid", string(config.COM.PID),
 	)
 
 	sio.reconnector.Start()
@@ -334,17 +331,17 @@ func (sio *SerialIO) setupOnConfigReload() {
 			sio.lastKnownNumSliders = 0
 			sio.stateLock.Unlock()
 
+			config := sio.deej.config.Values()
+
 			// if connection params have changed, ask the reconnector to
-			// renew the connection. when disconnected there's nothing to do:
-			// every dial attempt reads the current config anyway
+			// renew the connection. when disconnected every dial attempt
+			// reads the current config anyway
 			conn, ok := sio.reconnector.Current()
 			if !ok {
 				continue
 			}
 
-			config := sio.deej.config.Values()
-
-			if config.ConnectionInfo != conn.connInfo {
+			if config.COM != conn.connInfo {
 				sio.logger.Info("Detected change in connection parameters, attempting to renew connection")
 				sio.reconnector.Reconnect(errors.New("connection parameters changed"))
 			}
@@ -435,7 +432,7 @@ func (sio *SerialIO) handleLine(logger *zap.SugaredLogger, line string) {
 		}
 
 		// check if it changes the desired state (could just be a jumpy raw slider value)
-		if util.SignificantlyDifferent(sio.currentSliderValues[sliderIdx], number, config.NoiseReductionLevel) {
+		if util.SignificantlyDifferent(sio.currentSliderValues[sliderIdx], number, config.NoiseReduction) {
 
 			// if it does, update the saved value and create a move event
 			sio.currentSliderValues[sliderIdx] = number

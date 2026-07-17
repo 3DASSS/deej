@@ -323,10 +323,10 @@ func (d *Deej) initializeTray(onDone func()) {
 					})
 					app.Event.Emit(eventSessions)
 
-				// config applied (GUI save or manual edit); this case must always
-				// be drained, since onConfigReloaded blocks on every consumer
+				// config applied (GUI save or manual edit)
 				case <-configReloadedChannel:
 					app.Event.Emit(eventConfig)
+					emitState()
 					app.Event.Emit(eventSliders, d.serial.CurrentSliderPercentValues())
 				}
 			}

@@ -1,10 +1,10 @@
 <script lang="ts">
-  import { SettingsDTO } from "../../bindings/github.com/nik9play/deej/pkg/deej";
+  import { Settings } from "../../bindings/github.com/nik9play/deej/pkg/deej";
   import { m } from "../paraglide/messages";
   import FieldCheckbox from "./ui/FieldCheckbox.svelte";
   import FieldSelect from "./ui/FieldSelect.svelte";
 
-  let { settings }: { settings: SettingsDTO } = $props();
+  let { settings }: { settings: Settings } = $props();
 
   const noiseItems = $derived([
     ...(settings.noiseReduction === "" ? [{ value: "", label: m.noiseDefault() }] : []),

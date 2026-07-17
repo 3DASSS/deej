@@ -46,6 +46,85 @@ export class AppInfoDTO {
 }
 
 /**
+ * COMSettings describes the Arduino serial connection parameters
+ */
+export class COMSettings {
+    "port": string;
+    "baudRate": number;
+    "vid": HexWord;
+    "pid": HexWord;
+
+    /** Creates a new COMSettings instance. */
+    constructor($$source: Partial<COMSettings> = {}) {
+        if (!("port" in $$source)) {
+            this["port"] = "";
+        }
+        if (!("baudRate" in $$source)) {
+            this["baudRate"] = 0;
+        }
+        if (!("vid" in $$source)) {
+            this["vid"] = "";
+        }
+        if (!("pid" in $$source)) {
+            this["pid"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new COMSettings instance from a string or object.
+     */
+    static createFrom($$source: any = {}): COMSettings {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new COMSettings($$parsedSource as Partial<COMSettings>);
+    }
+}
+
+/**
+ * HexWord is a 16-bit value carried as a hex string (e.g. "1A86"), the form
+ * both the config file and the GUI use. An empty value means "use the
+ * built-in default"
+ */
+export type HexWord = string;
+
+/**
+ * OBSSettings describes the OBS websocket connection parameters
+ */
+export class OBSSettings {
+    "enabled": boolean;
+    "host": string;
+    "port": number;
+    "password": string;
+
+    /** Creates a new OBSSettings instance. */
+    constructor($$source: Partial<OBSSettings> = {}) {
+        if (!("enabled" in $$source)) {
+            this["enabled"] = false;
+        }
+        if (!("host" in $$source)) {
+            this["host"] = "";
+        }
+        if (!("port" in $$source)) {
+            this["port"] = 0;
+        }
+        if (!("password" in $$source)) {
+            this["password"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new OBSSettings instance from a string or object.
+     */
+    static createFrom($$source: any = {}): OBSSettings {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new OBSSettings($$parsedSource as Partial<OBSSettings>);
+    }
+}
+
+/**
  * SerialPortDTO describes an available serial port
  */
 export class SerialPortDTO {
@@ -126,42 +205,30 @@ export class SessionInfoDTO {
 }
 
 /**
- * SettingsDTO is a JSON-friendly mirror of the user config file, used by the settings GUI
+ * Settings is the single source of truth for deej's user-facing
+ * configuration. The yaml tags define the config file keys, the json tags
+ * the GUI wire format: a new setting only needs a field here (plus a default
+ * in defaultSettings and, if needed, a rule in Validate/sanitize) to reach
+ * the file, the runtime snapshot and the settings GUI
  */
-export class SettingsDTO {
-    "comPort": string;
-    "baudRate": number;
-
-    /**
-     * 16-bit hex string, e.g. "1A86"
-     */
-    "comVid": string;
-    "comPid": string;
+export class Settings {
+    "sliderMapping": SliderMappings;
     "invertSliders": boolean;
+    "com": COMSettings;
     "noiseReduction": string;
     "language": string;
-    "obsEnabled": boolean;
-    "obsHost": string;
-    "obsPort": number;
-    "obsPassword": string;
-    "sliderMapping": SliderMappingEntry[];
+    "obs": OBSSettings;
 
-    /** Creates a new SettingsDTO instance. */
-    constructor($$source: Partial<SettingsDTO> = {}) {
-        if (!("comPort" in $$source)) {
-            this["comPort"] = "";
-        }
-        if (!("baudRate" in $$source)) {
-            this["baudRate"] = 0;
-        }
-        if (!("comVid" in $$source)) {
-            this["comVid"] = "";
-        }
-        if (!("comPid" in $$source)) {
-            this["comPid"] = "";
+    /** Creates a new Settings instance. */
+    constructor($$source: Partial<Settings> = {}) {
+        if (!("sliderMapping" in $$source)) {
+            this["sliderMapping"] = [];
         }
         if (!("invertSliders" in $$source)) {
             this["invertSliders"] = false;
+        }
+        if (!("com" in $$source)) {
+            this["com"] = (new COMSettings());
         }
         if (!("noiseReduction" in $$source)) {
             this["noiseReduction"] = "";
@@ -169,40 +236,36 @@ export class SettingsDTO {
         if (!("language" in $$source)) {
             this["language"] = "";
         }
-        if (!("obsEnabled" in $$source)) {
-            this["obsEnabled"] = false;
-        }
-        if (!("obsHost" in $$source)) {
-            this["obsHost"] = "";
-        }
-        if (!("obsPort" in $$source)) {
-            this["obsPort"] = 0;
-        }
-        if (!("obsPassword" in $$source)) {
-            this["obsPassword"] = "";
-        }
-        if (!("sliderMapping" in $$source)) {
-            this["sliderMapping"] = [];
+        if (!("obs" in $$source)) {
+            this["obs"] = (new OBSSettings());
         }
 
         Object.assign(this, $$source);
     }
 
     /**
-     * Creates a new SettingsDTO instance from a string or object.
+     * Creates a new Settings instance from a string or object.
      */
-    static createFrom($$source: any = {}): SettingsDTO {
-        const $$createField11_0 = $$createType2;
+    static createFrom($$source: any = {}): Settings {
+        const $$createField0_0 = $$createType1;
+        const $$createField2_0 = $$createType4;
+        const $$createField5_0 = $$createType5;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("sliderMapping" in $$parsedSource) {
-            $$parsedSource["sliderMapping"] = $$createField11_0($$parsedSource["sliderMapping"]);
+            $$parsedSource["sliderMapping"] = $$createField0_0($$parsedSource["sliderMapping"]);
         }
-        return new SettingsDTO($$parsedSource as Partial<SettingsDTO>);
+        if ("com" in $$parsedSource) {
+            $$parsedSource["com"] = $$createField2_0($$parsedSource["com"]);
+        }
+        if ("obs" in $$parsedSource) {
+            $$parsedSource["obs"] = $$createField5_0($$parsedSource["obs"]);
+        }
+        return new Settings($$parsedSource as Partial<Settings>);
     }
 }
 
 /**
- * SliderMappingEntry is a JSON-friendly representation of a single slider's targets
+ * SliderMappingEntry is one slider's targets, JSON-friendly for the GUI
  */
 export class SliderMappingEntry {
     "slider": number;
@@ -232,6 +295,12 @@ export class SliderMappingEntry {
         return new SliderMappingEntry($$parsedSource as Partial<SliderMappingEntry>);
     }
 }
+
+/**
+ * SliderMappings is the slider_mapping config key. In the file it's a YAML
+ * mapping of slider index to a single target or a list of targets
+ */
+export type SliderMappings = SliderMappingEntry[];
 
 /**
  * StatusDTO describes the live connection state for the settings GUI
@@ -264,7 +333,7 @@ export class StatusDTO {
      * Creates a new StatusDTO instance from a string or object.
      */
     static createFrom($$source: any = {}): StatusDTO {
-        const $$createField2_0 = $$createType3;
+        const $$createField2_0 = $$createType6;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("sliderValues" in $$parsedSource) {
             $$parsedSource["sliderValues"] = $$createField2_0($$parsedSource["sliderValues"]);
@@ -275,6 +344,14 @@ export class StatusDTO {
 
 // Private type creation functions
 const $$createType0 = $Create.Array($Create.Any);
-const $$createType1 = SliderMappingEntry.createFrom;
-const $$createType2 = $Create.Array($$createType1);
-const $$createType3 = $Create.Array($Create.Any);
+var $$createType1 = (function $$initCreateType1(...args: any[]): any {
+    if ($$createType1 === $$initCreateType1) {
+        $$createType1 = $$createType3;
+    }
+    return $$createType1(...args);
+});
+const $$createType2 = SliderMappingEntry.createFrom;
+const $$createType3 = $Create.Array($$createType2);
+const $$createType4 = COMSettings.createFrom;
+const $$createType5 = OBSSettings.createFrom;
+const $$createType6 = $Create.Array($Create.Any);

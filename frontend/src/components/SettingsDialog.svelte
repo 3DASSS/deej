@@ -5,7 +5,7 @@
   import SlidersHorizontal from "@lucide/svelte/icons/sliders-horizontal";
   import Languages from "@lucide/svelte/icons/languages";
   import Video from "@lucide/svelte/icons/video";
-  import { AppInfoDTO, SettingsDTO, SettingsService } from "../../bindings/github.com/nik9play/deej/pkg/deej";
+  import { AppInfoDTO, Settings, SettingsService } from "../../bindings/github.com/nik9play/deej/pkg/deej";
   import { m } from "../paraglide/messages";
   import ConnectionSection from "./ConnectionSection.svelte";
   import BehaviorSection from "./BehaviorSection.svelte";
@@ -16,7 +16,7 @@
 
   let { open = $bindable(false), appInfo }: { open?: boolean; appInfo: AppInfoDTO | null } = $props();
 
-  let settings: SettingsDTO | null = $state(null);
+  let settings: Settings | null = $state(null);
   let originalJson = $state("");
   let statusText = $state("");
   let statusKind: "ok" | "error" = $state("ok");

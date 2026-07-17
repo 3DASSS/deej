@@ -8,9 +8,16 @@ export {
 
 export {
     AppInfoDTO,
+    COMSettings,
+    OBSSettings,
     SerialPortDTO,
     SessionInfoDTO,
-    SettingsDTO,
+    Settings,
     SliderMappingEntry,
     StatusDTO
+} from "./models.js";
+
+export type {
+    HexWord,
+    SliderMappings
 } from "./models.js";

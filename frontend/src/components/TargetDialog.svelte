@@ -7,7 +7,7 @@
   import Speaker from "@lucide/svelte/icons/speaker";
   import Video from "@lucide/svelte/icons/video";
   import X from "@lucide/svelte/icons/x";
-  import { AppInfoDTO, SettingsDTO, SettingsService } from "../../bindings/github.com/nik9play/deej/pkg/deej";
+  import { AppInfoDTO, Settings, SettingsService } from "../../bindings/github.com/nik9play/deej/pkg/deej";
   import { app, refreshSessions } from "../lib/state.svelte";
   import { m } from "../paraglide/messages";
   import { OBS_PREFIX, prettifyProcessName, specialTargetDescription, specialTargetLabel, targetLabel } from "../lib/targets";
@@ -44,7 +44,7 @@
 
   // fetch OBS inputs lazily, whenever the OBS tab is shown
   $effect(() => {
-    if (open && tab === "obs" && app.settings?.obsEnabled) {
+    if (open && tab === "obs" && app.settings?.obs.enabled) {
       void loadObsInputs();
     }
   });
@@ -124,7 +124,7 @@
     saving = true;
     errorText = "";
     try {
-      const dto: SettingsDTO = JSON.parse(JSON.stringify(app.settings));
+      const dto: Settings = JSON.parse(JSON.stringify(app.settings));
       dto.sliderMapping = dto.sliderMapping.filter((entry) => entry.slider !== slider);
       if (targets.length > 0) {
         dto.sliderMapping.push({ slider, targets: [...targets] });
@@ -268,7 +268,7 @@
           </Tabs.Content>
 
           <Tabs.Content value="obs" class="flex min-h-0 flex-1 flex-col gap-2 pt-3">
-            {#if !app.settings?.obsEnabled}
+            {#if !app.settings?.obs.enabled}
               <div class="hint py-1.5">{m.obsDisabled()}</div>
             {:else}
               <div class="flex shrink-0 gap-2">

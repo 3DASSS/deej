@@ -1,9 +1,9 @@
 <script lang="ts">
-  import { SettingsDTO } from "../../bindings/github.com/nik9play/deej/pkg/deej";
+  import { Settings } from "../../bindings/github.com/nik9play/deej/pkg/deej";
   import { m } from "../paraglide/messages";
   import FieldSelect from "./ui/FieldSelect.svelte";
 
-  let { settings }: { settings: SettingsDTO } = $props();
+  let { settings }: { settings: Settings } = $props();
 
   const languageItems = $derived([
     { value: "auto", label: m.languageAuto() },
