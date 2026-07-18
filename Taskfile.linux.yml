@@ -26,7 +26,7 @@ tasks:
     env:
       CGO_ENABLED: "1"
     cmds:
-      - go build -o {{.BIN_DIR}}/deej-release -ldflags "-s -w {{.LDFLAGS}} -X main.buildType=release" ./pkg/deej/cmd
+      - go build -tags production -o {{.BIN_DIR}}/deej-release -ldflags "-s -w {{.LDFLAGS}} -X main.buildType=release" ./pkg/deej/cmd
 
   build:dev:
     desc: Build the full GUI app with debug symbols -> deej-dev

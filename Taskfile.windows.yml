@@ -24,7 +24,7 @@ tasks:
     desc: Build deej-release.exe (optimized, no console window)
     deps: [syso, frontend]
     cmds:
-      - go build -o {{.BIN_DIR}}/deej-release.exe -ldflags "-H=windowsgui -s -w {{.LDFLAGS}} -X main.buildType=release" ./pkg/deej/cmd
+      - go build -tags production -o {{.BIN_DIR}}/deej-release.exe -ldflags "-H=windowsgui -s -w {{.LDFLAGS}} -X main.buildType=release" ./pkg/deej/cmd
 
   build:dev:
     desc: Build deej-dev.exe (debug symbols, console window)
