@@ -575,6 +575,10 @@ func (sf *paSessionFinder) addSourceFromInfo(info *proto.GetSourceInfoReply) {
 		}
 	}
 
+	// a card's source usually shares its description with the sink, so suffix
+	// the direction to keep input and output separately addressable
+	description += " (input)"
+
 	sf.mu.Lock()
 	if _, exists := sf.namedSources[info.SourceIndex]; exists {
 		sf.mu.Unlock()
