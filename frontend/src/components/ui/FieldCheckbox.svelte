@@ -6,13 +6,20 @@
     checked = $bindable(false),
     id,
     label,
-  }: { checked?: boolean; id: string; label: string } = $props();
+    onCheckedChange,
+  }: {
+    checked?: boolean;
+    id: string;
+    label: string;
+    onCheckedChange?: (checked: boolean) => void;
+  } = $props();
 </script>
 
 <div class="flex items-center gap-2">
   <Checkbox.Root
     {id}
     bind:checked
+    {onCheckedChange}
     class="flex size-4 shrink-0 items-center justify-center rounded border border-edge bg-field transition-colors data-[state=checked]:border-accent data-[state=checked]:bg-accent"
   >
     {#snippet children({ checked: isChecked })}

@@ -7,8 +7,9 @@
   import Copy from "@lucide/svelte/icons/copy";
   import X from "@lucide/svelte/icons/x";
   import { m } from "../paraglide/messages";
+  import { app } from "../lib/state.svelte";
 
-  let { version = "", onOpenSettings }: { version?: string; onOpenSettings: () => void } = $props();
+  let { onOpenSettings }: { onOpenSettings: () => void } = $props();
 
   let maximised = $state(false);
 
@@ -38,11 +39,22 @@
   ondblclick={toggleMaximise}
 >
   <span class="text-[13px] font-semibold">deej</span>
-  {#if version}
-    <span class="text-xs text-muted">{version}</span>
-  {/if}
 
-  <div class="ml-auto flex h-full items-stretch [--wails-draggable:no-drag]">
+  <span
+    class="ml-auto flex items-center gap-1.5 text-xs text-muted"
+    title={app.connected ? m.connected() : m.disconnected()}
+  >
+    <span
+      class="size-1.5 rounded-full {app.connected ? 'bg-green-500' : 'animate-pulse border border-muted'}"
+    ></span>
+    {#if app.connected}
+      {app.comPort || m.connected()}
+    {:else}
+      {m.disconnected()}
+    {/if}
+  </span>
+
+  <div class="flex h-full items-stretch [--wails-draggable:no-drag]">
     <button
       type="button"
       class="flex w-11 items-center justify-center text-muted transition-colors hover:bg-chip hover:text-body"

@@ -15,6 +15,7 @@
   }: { value?: string; items: Item[]; id?: string; placeholder?: string } = $props();
 
   let search = $state("");
+  let open = $state(false);
   let inputEl: HTMLInputElement | null = $state(null);
 
   const filtered = $derived.by(() => {
@@ -38,6 +39,7 @@
 
 <Combobox.Root
   type="single"
+  bind:open
   value={value}
   onValueChange={(selected) => {
     value = selected;
@@ -56,6 +58,9 @@
       oninput={(e) => {
         value = e.currentTarget.value;
         search = e.currentTarget.value;
+      }}
+      onclick={() => {
+        open = true;
       }}
     />
     <Combobox.Trigger class="absolute top-1/2 right-2 -translate-y-1/2 text-muted" tabindex={-1}>

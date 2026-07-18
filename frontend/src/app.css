@@ -97,7 +97,7 @@
 
 @layer components {
   .input {
-    @apply w-full rounded-md border border-edge bg-field px-2.5 py-1.5 text-sm text-body focus-visible:outline-2 focus-visible:outline-accent;
+    @apply w-full rounded-md border border-edge bg-field px-2.5 py-1.5 text-sm text-body focus-visible:outline-2 focus-visible:outline-accent/80;
   }
 
   .label {
@@ -122,17 +122,33 @@
       dark:enabled:active:from-white/5 dark:enabled:active:to-white/5;
   }
 
-  /* blue-violet gradient accent, identical in light and dark */
+  /* monochrome accent: near-black in light mode, near-white in dark mode */
   .btn-primary {
-    @apply bg-linear-to-b from-violet-500 to-indigo-600 font-semibold text-white
-      shadow-[inset_0_1px_0_rgb(255_255_255/0.35),0_1px_2px_rgb(60_50_160/0.4)]
-      enabled:hover:from-violet-400 enabled:hover:to-indigo-500
-      enabled:active:from-violet-600 enabled:active:to-indigo-700
-      enabled:active:shadow-[inset_0_1px_3px_rgb(38_30_120/0.45)];
+    @apply bg-linear-to-b from-neutral-700 to-neutral-900 font-semibold text-on-accent
+      shadow-[inset_0_1px_0_rgb(255_255_255/0.25),0_1px_2px_rgb(0_0_0/0.35)]
+      enabled:hover:from-neutral-600 enabled:hover:to-neutral-800
+      enabled:active:from-neutral-900 enabled:active:to-neutral-900
+      enabled:active:shadow-[inset_0_1px_3px_rgb(0_0_0/0.6)]
+      dark:from-white dark:to-neutral-300
+      dark:shadow-[inset_0_1px_0_rgb(255_255_255/0.9),0_1px_2px_rgb(0_0_0/0.45)]
+      dark:enabled:hover:from-white dark:enabled:hover:to-neutral-200
+      dark:enabled:active:from-neutral-300 dark:enabled:active:to-neutral-400
+      dark:enabled:active:shadow-[inset_0_1px_3px_rgb(0_0_0/0.25)];
   }
 
   .card {
     @apply rounded-lg border border-edge bg-card p-4;
+  }
+
+  /* dialog panel with the same bright top highlight as the buttons */
+  .dialog {
+    @apply rounded-lg border border-edge bg-surface;
+  }
+
+  /* horizontal tick marks every 10%, drawn upward from the bottom edge in
+     currentColor; layered over both the filled and unfilled slider zones */
+  .slider-ticks {
+    background-image: repeating-linear-gradient(to top, currentColor 0 1px, transparent 1px 10%);
   }
 }
 

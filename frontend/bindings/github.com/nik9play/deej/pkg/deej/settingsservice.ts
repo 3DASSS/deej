@@ -25,6 +25,13 @@ export function GetAppInfo(): $CancellablePromise<$models.AppInfoDTO> {
 }
 
 /**
+ * GetAutostart reports whether deej is set to run at system startup
+ */
+export function GetAutostart(): $CancellablePromise<boolean> {
+    return $Call.ByID(3740953349);
+}
+
+/**
  * GetOBSInputs returns the input names of the connected OBS instance, for
  * slider mapping suggestions
  */
@@ -78,6 +85,14 @@ export function ListSerialPorts(): $CancellablePromise<$models.SerialPortDTO[]> 
  */
 export function SaveSettings(settings: $models.Settings): $CancellablePromise<void> {
     return $Call.ByID(523154580, settings);
+}
+
+/**
+ * SetAutostart enables or disables running deej at system startup, applying
+ * the change immediately
+ */
+export function SetAutostart(state: boolean): $CancellablePromise<void> {
+    return $Call.ByID(470775857, state);
 }
 
 // Private type creation functions

@@ -5,6 +5,17 @@
 
   let { onEditTargets }: { onEditTargets: (slider: number) => void } = $props();
 
+  // translate vertical wheel movement into horizontal scrolling so the slider
+  // row can be panned left/right with a regular mouse wheel
+  function onWheel(event: WheelEvent) {
+    const el = event.currentTarget as HTMLElement;
+    if (el.scrollWidth <= el.clientWidth) return;
+    // let horizontal-capable input (trackpads, tilt wheels) through untouched
+    if (event.deltaX !== 0) return;
+    el.scrollLeft += event.deltaY;
+    event.preventDefault();
+  }
+
   const columns = $derived.by(() => {
     const mapping = app.settings?.sliderMapping ?? [];
     const maxMapped = mapping.reduce((max, entry) => Math.max(max, entry.slider + 1), 0);
@@ -26,7 +37,8 @@
   {/if}
 
   <div
-    class="flex flex-1 items-center justify-center gap-5 overflow-x-auto px-6 py-5 transition-opacity {app.connected
+    onwheel={onWheel}
+    class="flex flex-1 items-center justify-center-safe gap-5 overflow-x-auto px-6 py-5 transition-opacity {app.connected
       ? ''
       : 'opacity-40 grayscale'}"
   >

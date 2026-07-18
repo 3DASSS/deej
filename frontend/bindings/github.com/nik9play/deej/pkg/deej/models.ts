@@ -13,6 +13,7 @@ export class AppInfoDTO {
     "configPath": string;
     "resolvedLanguage": string;
     "specialTargets": string[];
+    "autostartAvailable": boolean;
 
     /** Creates a new AppInfoDTO instance. */
     constructor($$source: Partial<AppInfoDTO> = {}) {
@@ -27,6 +28,9 @@ export class AppInfoDTO {
         }
         if (!("specialTargets" in $$source)) {
             this["specialTargets"] = [];
+        }
+        if (!("autostartAvailable" in $$source)) {
+            this["autostartAvailable"] = false;
         }
 
         Object.assign(this, $$source);

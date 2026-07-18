@@ -11,6 +11,7 @@
   <div class="hint mt-2">{m.obsHint()}</div>
 
   {#if settings.obs.enabled}
+    <div class="hint mt-3">{m.obsWebsocketHint()}</div>
     <div class="mt-3 flex flex-wrap gap-3.5">
       <div class="flex min-w-36 flex-1 flex-col gap-1">
         <label class="label" for="obs-host">{m.obsHost()}</label>

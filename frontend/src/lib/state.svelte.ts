@@ -1,5 +1,6 @@
 import { Events } from "@wailsio/runtime";
 import { SessionInfoDTO, Settings, SettingsService } from "../../bindings/github.com/nik9play/deej/pkg/deej";
+import { tickOnChange } from "./tick";
 
 // live application state, fed by wails events from the Go side
 export const app = $state({
@@ -33,7 +34,9 @@ export async function refreshSessions(): Promise<void> {
 export function init(): () => void {
   const offs = [
     Events.On("deej:sliders", (ev) => {
-      app.values = (ev.data as number[]) ?? [];
+      const values = (ev.data as number[]) ?? [];
+      app.values = values;
+      tickOnChange(values);
     }),
     Events.On("deej:state", (ev) => {
       const data = ev.data as { connected: boolean; comPort: string };

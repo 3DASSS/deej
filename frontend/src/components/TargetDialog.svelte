@@ -16,12 +16,19 @@
     open = $bindable(false),
     slider,
     appInfo,
-  }: { open?: boolean; slider: number; appInfo: AppInfoDTO | null } = $props();
+    onOpenObsSettings,
+  }: {
+    open?: boolean;
+    slider: number;
+    appInfo: AppInfoDTO | null;
+    onOpenObsSettings?: () => void;
+  } = $props();
 
   let targets: string[] = $state([]);
   let tab = $state("apps");
   let appSearch = $state("");
-  let obsInputName = $state("");
+  let deviceSearch = $state("");
+  let obsSearch = $state("");
   let obsInputs: string[] = $state([]);
   let obsError = $state(false);
   let saving = $state(false);
@@ -36,7 +43,8 @@
       targets = [...(app.settings?.sliderMapping.find((entry) => entry.slider === slider)?.targets ?? [])];
       tab = "apps";
       appSearch = "";
-      obsInputName = "";
+      deviceSearch = "";
+      obsSearch = "";
       errorText = "";
       void refreshSessions();
     }
@@ -73,7 +81,30 @@
       );
   });
 
-  const deviceItems = $derived(app.sessions.filter((session) => session.isDevice));
+  const deviceItems = $derived.by(() => {
+    const query = deviceSearch.trim().toLowerCase();
+    return app.sessions
+      .filter((session) => session.isDevice)
+      .filter(
+        (session) =>
+          query === "" ||
+          session.key.includes(query) ||
+          (session.displayName ?? "").toLowerCase().includes(query),
+      );
+  });
+
+  const obsItems = $derived.by(() => {
+    const query = obsSearch.trim().toLowerCase();
+    return obsInputs.filter((inputName) => query === "" || inputName.toLowerCase().includes(query));
+  });
+
+  // OBS input names are arbitrary too - offer to add the typed text when it
+  // doesn't exactly match a known input
+  const obsFreeText = $derived.by(() => {
+    const value = obsSearch.trim();
+    if (value === "") return "";
+    return obsInputs.includes(value) ? "" : value;
+  });
 
   // arbitrary process names are allowed - offer to add the typed text when it
   // doesn't exactly match a running session
@@ -109,14 +140,13 @@
     appSearch = "";
   }
 
-  function addObsInput() {
-    const value = obsInputName.trim();
-    if (value === "") return;
-    const target = OBS_PREFIX + value;
+  function addObsFreeText() {
+    if (obsFreeText === "") return;
+    const target = OBS_PREFIX + obsFreeText;
     if (!isSelected(target)) {
       targets = [...targets, target];
     }
-    obsInputName = "";
+    obsSearch = "";
   }
 
   async function save() {
@@ -141,6 +171,16 @@
   }
 </script>
 
+{#snippet obsSettingsLink()}
+  <button
+    type="button"
+    class="cursor-pointer text-body underline underline-offset-2 hover:text-muted"
+    onclick={onOpenObsSettings}
+  >
+    {m.openSettings()}
+  </button>
+{/snippet}
+
 {#snippet itemRow(target: string, label: string, hint: string)}
   <button
     type="button"
@@ -163,10 +203,10 @@
   <Dialog.Portal>
     <Dialog.Overlay class="anim-overlay fixed inset-0 z-40 bg-black/40 backdrop-blur-sm" />
     <Dialog.Content
-      class="anim-dialog fixed top-1/2 left-1/2 z-50 flex h-[min(600px,88dvh)] w-[min(620px,92vw)] -translate-x-1/2 -translate-y-1/2 flex-col rounded-lg border border-edge bg-surface shadow-2xl"
+      class="dialog anim-dialog fixed top-1/2 left-1/2 z-50 flex h-[min(600px,88dvh)] w-[min(620px,92vw)] -translate-x-1/2 -translate-y-1/2 flex-col"
     >
       <div class="flex shrink-0 items-center justify-between border-b border-edge px-4 py-2.5">
-        <Dialog.Title class="text-sm font-semibold">{m.targetsFor()} {slider}</Dialog.Title>
+        <Dialog.Title class="text-sm font-semibold">{m.targetsFor({ number: slider + 1 })}</Dialog.Title>
         <Dialog.Close
           class="rounded p-1 text-muted transition-colors hover:bg-chip hover:text-body"
           aria-label={m.close()}
@@ -249,7 +289,8 @@
             </div>
           </Tabs.Content>
 
-          <Tabs.Content value="devices" class="flex min-h-0 flex-1 flex-col pt-3">
+          <Tabs.Content value="devices" class="flex min-h-0 flex-1 flex-col gap-2 pt-3">
+            <input type="text" class="input shrink-0" placeholder={m.searchDevices()} bind:value={deviceSearch} />
             <div class="min-h-0 flex-1 overflow-y-auto">
               {#each deviceItems as session (session.key)}
                 {@render itemRow(session.key, session.displayName || session.key, "")}
@@ -269,39 +310,46 @@
 
           <Tabs.Content value="obs" class="flex min-h-0 flex-1 flex-col gap-2 pt-3">
             {#if !app.settings?.obs.enabled}
-              <div class="hint py-1.5">{m.obsDisabled()}</div>
-            {:else}
-              <div class="flex shrink-0 gap-2">
-                <input
-                  type="text"
-                  class="input flex-1"
-                  placeholder={m.obsInputPlaceholder()}
-                  bind:value={obsInputName}
-                  onkeydown={(e) => {
-                    if (e.key === "Enter") {
-                      e.preventDefault();
-                      addObsInput();
-                    }
-                  }}
-                />
-                <button
-                  type="button"
-                  class="btn shrink-0"
-                  onclick={addObsInput}
-                  disabled={obsInputName.trim() === ""}
-                  aria-label={m.addTarget()}
-                >
-                  <Plus size={14} />
-                </button>
+              <div class="hint py-1.5">
+                {m.obsDisabled()}
+                {@render obsSettingsLink()}
               </div>
+            {:else}
+              <input
+                type="text"
+                class="input shrink-0"
+                placeholder={m.searchObsInputs()}
+                bind:value={obsSearch}
+                onkeydown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    addObsFreeText();
+                  }
+                }}
+              />
               <div class="min-h-0 flex-1 overflow-y-auto">
+                {#if obsFreeText !== ""}
+                  <button
+                    type="button"
+                    class="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm text-accent transition-colors hover:bg-chip"
+                    onclick={addObsFreeText}
+                  >
+                    <Plus size={14} class="shrink-0" />
+                    <span class="truncate">{m.addTarget()}: "{obsFreeText}"</span>
+                  </button>
+                {/if}
                 {#if obsError}
-                  <div class="hint px-2 py-1.5">{m.obsNotConnected()}</div>
+                  <div class="hint px-2 py-1.5">
+                    {m.obsNotConnected()}
+                    {@render obsSettingsLink()}
+                  </div>
                 {:else}
-                  {#each obsInputs as inputName (inputName)}
+                  {#each obsItems as inputName (inputName)}
                     {@render itemRow(OBS_PREFIX + inputName, inputName, "")}
                   {:else}
-                    <div class="hint px-2 py-1.5">{m.noObsInputs()}</div>
+                    {#if obsFreeText === ""}
+                      <div class="hint px-2 py-1.5">{m.noObsInputs()}</div>
+                    {/if}
                   {/each}
                 {/if}
               </div>
@@ -310,12 +358,12 @@
         </Tabs.Root>
       </div>
 
-      <div class="flex shrink-0 items-center gap-2 border-t border-edge px-4 py-2.5">
-        <button class="btn btn-primary" onclick={save} disabled={saving}>{m.ok()}</button>
-        <button class="btn" onclick={() => (open = false)} disabled={saving}>{m.cancel()}</button>
+      <div class="flex shrink-0 items-center justify-end gap-2 border-t border-edge px-4 py-2.5">
         {#if errorText}
-          <span class="ml-auto text-[13px] text-danger">{errorText}</span>
+          <span class="mr-auto text-[13px] text-danger">{errorText}</span>
         {/if}
+        <button class="btn" onclick={() => (open = false)} disabled={saving}>{m.cancel()}</button>
+        <button class="btn btn-primary" onclick={save} disabled={saving}>{m.save()}</button>
       </div>
     </Dialog.Content>
   </Dialog.Portal>

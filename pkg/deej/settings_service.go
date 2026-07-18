@@ -2,9 +2,12 @@ package deej
 
 import (
 	"errors"
+	"runtime"
 	"sort"
 
 	"go.bug.st/serial/enumerator"
+
+	"github.com/nik9play/deej/pkg/deej/util"
 )
 
 // SettingsService exposes configuration APIs to the settings GUI frontend
@@ -27,10 +30,11 @@ type SerialPortDTO struct {
 
 // AppInfoDTO describes static application info for the settings GUI
 type AppInfoDTO struct {
-	Version          string   `json:"version"`
-	ConfigPath       string   `json:"configPath"`
-	ResolvedLanguage string   `json:"resolvedLanguage"`
-	SpecialTargets   []string `json:"specialTargets"`
+	Version            string   `json:"version"`
+	ConfigPath         string   `json:"configPath"`
+	ResolvedLanguage   string   `json:"resolvedLanguage"`
+	SpecialTargets     []string `json:"specialTargets"`
+	AutostartAvailable bool     `json:"autostartAvailable"`
 }
 
 // SessionInfoDTO describes a running audio session for target suggestions
@@ -73,7 +77,19 @@ func (s *SettingsService) GetAppInfo() AppInfoDTO {
 			specialTargetTransformPrefix + specialTargetCurrentFullscreenWindow,
 			specialTargetTransformPrefix + specialTargetAllUnmapped,
 		},
+		AutostartAvailable: runtime.GOOS == "windows",
 	}
+}
+
+// GetAutostart reports whether deej is set to run at system startup
+func (s *SettingsService) GetAutostart() bool {
+	return util.GetAutostartState()
+}
+
+// SetAutostart enables or disables running deej at system startup, applying
+// the change immediately
+func (s *SettingsService) SetAutostart(state bool) error {
+	return util.SetAutostartState(state)
 }
 
 // GetStatus returns the current serial connection state and slider values,

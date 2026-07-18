@@ -10,6 +10,7 @@
   let { appInfo }: { appInfo: AppInfoDTO | null } = $props();
 
   let settingsOpen = $state(false);
+  let settingsTab = $state("general");
   let targetDialogOpen = $state(false);
   let targetSlider = $state(0);
 
@@ -19,13 +20,26 @@
     targetSlider = slider;
     targetDialogOpen = true;
   }
+
+  function openSettings(tab = "general") {
+    settingsTab = tab;
+    settingsOpen = true;
+  }
 </script>
 
-<Titlebar version={appInfo?.version ?? ""} onOpenSettings={() => (settingsOpen = true)} />
+<Titlebar onOpenSettings={() => openSettings()} />
 
 <main class="flex-1 overflow-hidden">
   <Mixer onEditTargets={editTargets} />
 </main>
 
-<SettingsDialog bind:open={settingsOpen} {appInfo} />
-<TargetDialog bind:open={targetDialogOpen} slider={targetSlider} {appInfo} />
+<SettingsDialog bind:open={settingsOpen} initialTab={settingsTab} {appInfo} />
+<TargetDialog
+  bind:open={targetDialogOpen}
+  slider={targetSlider}
+  {appInfo}
+  onOpenObsSettings={() => {
+    targetDialogOpen = false;
+    openSettings("obs");
+  }}
+/>
