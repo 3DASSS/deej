@@ -4,7 +4,8 @@
 # you can use 'deej.unmapped' to control all apps that aren't bound to any slider (this ignores master, system, mic and device-targeting sessions)
 # windows only - you can use 'deej.current' to control the currently active app (whether full-screen or not)
 # windows only - you can use 'deej.current.fullscreen' to control the currently active full-screen app
-# windows only - you can use a device's full name, i.e. "Speakers (Realtek High Definition Audio)", to bind it. this works for both output and input devices
+# you can use a device's full name, i.e. "Speakers (Realtek High Definition Audio)", to bind it. this works for both output and input devices
+# on linux, input devices get an ' (input)' suffix, i.e. "HyperX Cloud (input)", since a device's input and output can share the same name
 # windows only - you can use 'system' to control the "system sounds" volume
 # you can use 'deej.obs:<input name>' to control OBS audio sources (requires obs.enabled: true)
 # important: slider indexes start at 0, regardless of which analog pins you're using!
