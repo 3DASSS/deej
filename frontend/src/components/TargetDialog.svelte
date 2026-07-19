@@ -31,6 +31,7 @@
   let obsSearch = $state("");
   let obsInputs: string[] = $state([]);
   let obsError = $state(false);
+  let processes: string[] = $state([]);
   let saving = $state(false);
   let errorText = $state("");
 
@@ -47,6 +48,7 @@
       obsSearch = "";
       errorText = "";
       void refreshSessions();
+      void loadProcesses();
     }
   });
 
@@ -56,6 +58,14 @@
       void loadObsInputs();
     }
   });
+
+  async function loadProcesses() {
+    try {
+      processes = (await SettingsService.GetProcesses()) ?? [];
+    } catch {
+      processes = [];
+    }
+  }
 
   async function loadObsInputs() {
     obsError = false;
@@ -79,6 +89,16 @@
           session.key.includes(query) ||
           (session.displayName ?? "").toLowerCase().includes(query),
       );
+  });
+
+  // running processes without an audio session, offered as dimmed
+  // suggestions - a mapping takes effect once the app starts playing audio
+  const processItems = $derived.by(() => {
+    const query = appSearch.trim().toLowerCase();
+    const sessionKeys = new Set(app.sessions.map((session) => session.key));
+    return processes
+      .filter((name) => !sessionKeys.has(name) && !specialSessionKeys.includes(name))
+      .filter((name) => query === "" || name.includes(query));
   });
 
   const deviceItems = $derived.by(() => {
@@ -107,11 +127,13 @@
   });
 
   // arbitrary process names are allowed - offer to add the typed text when it
-  // doesn't exactly match a running session
+  // doesn't exactly match a running session or process
   const freeText = $derived.by(() => {
     const value = appSearch.trim();
     if (value === "") return "";
-    return app.sessions.some((session) => session.key === value.toLowerCase()) ? "" : value;
+    const lower = value.toLowerCase();
+    if (app.sessions.some((session) => session.key === lower)) return "";
+    return processes.includes(lower) ? "" : value;
   });
 
   function isSelected(target: string): boolean {
@@ -181,10 +203,10 @@
   </button>
 {/snippet}
 
-{#snippet itemRow(target: string, label: string, hint: string)}
+{#snippet itemRow(target: string, label: string, hint: string, dimmed: boolean = false)}
   <button
     type="button"
-    class="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm transition-colors hover:bg-chip"
+    class="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm transition-colors hover:bg-chip {dimmed && !isSelected(target) ? 'opacity-60 hover:opacity-100' : ''}"
     onclick={() => toggle(target)}
   >
     <span class="flex min-w-0 flex-1 flex-col">
@@ -282,10 +304,18 @@
                   session.displayName ? session.key : "",
                 )}
               {:else}
-                {#if freeText === ""}
+                {#if freeText === "" && processItems.length === 0}
                   <div class="hint px-2 py-1.5">{m.noSessions()}</div>
                 {/if}
               {/each}
+              {#if processItems.length > 0}
+                <div class="hint px-2 pt-3 pb-1 text-xs font-medium tracking-wide uppercase">
+                  {m.otherProcesses()}
+                </div>
+                {#each processItems as name (name)}
+                  {@render itemRow(name, prettifyProcessName(name), name.toLowerCase().endsWith(".exe") ? name : "", true)}
+                {/each}
+              {/if}
             </div>
           </Tabs.Content>
 

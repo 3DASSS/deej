@@ -4,7 +4,9 @@ import (
 	"errors"
 	"runtime"
 	"sort"
+	"strings"
 
+	ps "github.com/mitchellh/go-ps"
 	"go.bug.st/serial/enumerator"
 
 	"github.com/nik9play/deej/pkg/deej/util"
@@ -106,6 +108,37 @@ func (s *SettingsService) GetStatus() StatusDTO {
 // names, for slider mapping suggestions
 func (s *SettingsService) GetSessions() []SessionInfoDTO {
 	return s.d.sessions.sessionInfos()
+}
+
+// GetProcesses returns the deduplicated, sorted executable names of all
+// running processes, so the target picker can suggest apps that aren't
+// currently playing audio
+func (s *SettingsService) GetProcesses() ([]string, error) {
+	processes, err := ps.Processes()
+	if err != nil {
+		return nil, err
+	}
+
+	seen := make(map[string]struct{}, len(processes))
+	names := make([]string, 0, len(processes))
+	for _, process := range processes {
+		name := strings.ToLower(process.Executable())
+
+		// skip pseudo-processes like the Windows "[System Process]" (pid 0)
+		if name == "" || strings.HasPrefix(name, "[") {
+			continue
+		}
+		if _, ok := seen[name]; ok {
+			continue
+		}
+
+		seen[name] = struct{}{}
+		names = append(names, name)
+	}
+
+	sort.Strings(names)
+
+	return names, nil
 }
 
 // GetOBSInputs returns the input names of the connected OBS instance, for

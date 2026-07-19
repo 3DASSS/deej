@@ -48,6 +48,7 @@
   "searchDevices": "Search devices...",
   "searchObsInputs": "Search OBS inputs or type a name...",
   "noSessions": "No running audio sessions",
+  "otherProcesses": "Other processes",
   "obsDisabled": "OBS integration is disabled.",
   "openSettings": "Open settings",
   "obsNotConnected": "Not connected to OBS. You can still add an input name manually.",

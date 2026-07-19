@@ -42,6 +42,17 @@ export function GetOBSInputs(): $CancellablePromise<string[]> {
 }
 
 /**
+ * GetProcesses returns the deduplicated, sorted executable names of all
+ * running processes, so the target picker can suggest apps that aren't
+ * currently playing audio
+ */
+export function GetProcesses(): $CancellablePromise<string[]> {
+    return $Call.ByID(3688174489).then(($result: any) => {
+        return $$createType1($result);
+    });
+}
+
+/**
  * GetSessions returns the current audio sessions with friendly display
  * names, for slider mapping suggestions
  */

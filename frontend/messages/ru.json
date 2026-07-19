@@ -48,6 +48,7 @@
   "searchDevices": "Поиск устройств...",
   "searchObsInputs": "Поиск источников OBS или имя источника...",
   "noSessions": "Нет активных аудиосессий",
+  "otherProcesses": "Другие процессы",
   "obsDisabled": "Интеграция с OBS отключена.",
   "openSettings": "Открыть настройки",
   "obsNotConnected": "Нет подключения к OBS. Имя источника можно добавить вручную.",
