@@ -93,6 +93,7 @@ func newNamedMasterSession(
 
 	s.logger = logger.Named(name)
 	s.master = true
+	s.input = !isOutput
 	s.name = name
 	s.humanReadableDesc = name
 	// keeps the original casing (Key() lowercases), shown for device sessions

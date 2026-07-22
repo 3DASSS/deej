@@ -1,10 +1,13 @@
 package deej
 
 import (
+	"encoding/base64"
 	"errors"
+	"maps"
 	"runtime"
 	"sort"
 	"strings"
+	"sync"
 
 	ps "github.com/mitchellh/go-ps"
 	"go.bug.st/serial/enumerator"
@@ -15,10 +18,13 @@ import (
 // SettingsService exposes configuration APIs to the settings GUI frontend
 type SettingsService struct {
 	d *Deej
+
+	iconMu    sync.Mutex
+	iconCache map[string]string
 }
 
 func newSettingsService(d *Deej) *SettingsService {
-	return &SettingsService{d: d}
+	return &SettingsService{d: d, iconCache: make(map[string]string)}
 }
 
 // SerialPortDTO describes an available serial port
@@ -44,6 +50,7 @@ type SessionInfoDTO struct {
 	Key         string `json:"key"`
 	DisplayName string `json:"displayName"` // friendly name, may be empty
 	IsDevice    bool   `json:"isDevice"`    // device master session, not a process
+	IsInput     bool   `json:"isInput"`     // capture-side session (microphone)
 }
 
 // StatusDTO describes the live connection state for the settings GUI
@@ -110,35 +117,121 @@ func (s *SettingsService) GetSessions() []SessionInfoDTO {
 	return s.d.sessions.sessionInfos()
 }
 
-// GetProcesses returns the deduplicated, sorted executable names of all
-// running processes, so the target picker can suggest apps that aren't
-// currently playing audio
-func (s *SettingsService) GetProcesses() ([]string, error) {
+// processIDsByName enumerates running processes and groups their PIDs by
+// lowercased executable name, skipping pseudo-processes like the Windows
+// "[System Process]" (pid 0)
+func processIDsByName() (map[string][]int, error) {
 	processes, err := ps.Processes()
 	if err != nil {
 		return nil, err
 	}
 
-	seen := make(map[string]struct{}, len(processes))
-	names := make([]string, 0, len(processes))
+	pidsByName := make(map[string][]int, len(processes))
 	for _, process := range processes {
 		name := strings.ToLower(process.Executable())
-
-		// skip pseudo-processes like the Windows "[System Process]" (pid 0)
 		if name == "" || strings.HasPrefix(name, "[") {
 			continue
 		}
-		if _, ok := seen[name]; ok {
-			continue
-		}
 
-		seen[name] = struct{}{}
+		pidsByName[name] = append(pidsByName[name], process.Pid())
+	}
+
+	return pidsByName, nil
+}
+
+// GetProcesses returns the deduplicated, sorted executable names of all
+// running processes
+func (s *SettingsService) GetProcesses() ([]string, error) {
+	pidsByName, err := processIDsByName()
+	if err != nil {
+		return nil, err
+	}
+
+	names := make([]string, 0, len(pidsByName))
+	for name := range pidsByName {
 		names = append(names, name)
 	}
 
 	sort.Strings(names)
 
 	return names, nil
+}
+
+// processIconDataURI extracts the icon shared by the processes with the
+// given PIDs, as a PNG data URI.
+func processIconDataURI(pids []int) (icon string, conclusive bool) {
+	triedPaths := make(map[string]struct{})
+
+	for _, pid := range pids {
+		path, err := util.GetProcessImagePath(uint32(pid))
+		if err != nil {
+			continue
+		}
+		if _, tried := triedPaths[path]; tried {
+			continue
+		}
+		triedPaths[path] = struct{}{}
+
+		if pngBytes, err := util.GetFileIconPNG(path); err == nil {
+			return "data:image/png;base64," + base64.StdEncoding.EncodeToString(pngBytes), true
+		}
+	}
+
+	return "", len(triedPaths) > 0
+}
+
+// GetProcessIcons returns PNG data URIs for the icons of the given process
+// names, keyed by the names exactly as passed. Icons are cached across calls
+func (s *SettingsService) GetProcessIcons(names []string) map[string]string {
+	result := make(map[string]string)
+
+	if !util.ProcessIconsSupported {
+		return result
+	}
+
+	missing := make(map[string]struct{})
+
+	s.iconMu.Lock()
+	for _, name := range names {
+		key := strings.ToLower(name)
+		if icon, ok := s.iconCache[key]; ok {
+			if icon != "" {
+				result[name] = icon
+			}
+		} else {
+			missing[key] = struct{}{}
+		}
+	}
+	s.iconMu.Unlock()
+
+	if len(missing) == 0 {
+		return result
+	}
+
+	pidsByName, err := processIDsByName()
+	if err != nil {
+		return result
+	}
+
+	extracted := make(map[string]string, len(missing))
+	for key := range missing {
+		icon, conclusive := processIconDataURI(pidsByName[key])
+		if conclusive {
+			extracted[key] = icon
+		}
+	}
+
+	s.iconMu.Lock()
+	maps.Copy(s.iconCache, extracted)
+	s.iconMu.Unlock()
+
+	for _, name := range names {
+		if icon := extracted[strings.ToLower(name)]; icon != "" {
+			result[name] = icon
+		}
+	}
+
+	return result
 }
 
 // GetOBSInputs returns the input names of the connected OBS instance, for

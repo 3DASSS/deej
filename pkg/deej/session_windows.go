@@ -97,6 +97,7 @@ func newMasterSession(
 	eventCtx *ole.GUID,
 	key string,
 	loggerKey string,
+	isOutput bool,
 ) (*masterSession, error) {
 
 	s := &masterSession{
@@ -106,6 +107,7 @@ func newMasterSession(
 
 	s.logger = logger.Named(loggerKey)
 	s.master = true
+	s.input = !isOutput
 	s.name = key
 	s.humanReadableDesc = key
 	// keeps the original casing (Key() lowercases), shown for device sessions

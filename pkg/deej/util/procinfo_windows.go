@@ -12,6 +12,17 @@ import (
 // of the executable behind the given process (e.g. "Google Chrome" for
 // chrome.exe), for use as a friendly display name
 func GetProcessFileDescription(pid uint32) (string, error) {
+	path, err := GetProcessImagePath(pid)
+	if err != nil {
+		return "", err
+	}
+
+	return getFileDescription(path)
+}
+
+// GetProcessImagePath returns the full path of the executable behind the
+// given process
+func GetProcessImagePath(pid uint32) (string, error) {
 	handle, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION, false, pid)
 	if err != nil {
 		return "", fmt.Errorf("open process: %w", err)
@@ -26,7 +37,7 @@ func GetProcessFileDescription(pid uint32) (string, error) {
 		return "", fmt.Errorf("query process image name: %w", err)
 	}
 
-	return getFileDescription(windows.UTF16ToString(buf[:size]))
+	return windows.UTF16ToString(buf[:size]), nil
 }
 
 func getFileDescription(path string) (string, error) {

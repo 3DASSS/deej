@@ -2,6 +2,7 @@
   import { Dialog, Tabs } from "bits-ui";
   import AppWindow from "@lucide/svelte/icons/app-window";
   import Check from "@lucide/svelte/icons/check";
+  import Mic from "@lucide/svelte/icons/mic";
   import Plus from "@lucide/svelte/icons/plus";
   import Sparkles from "@lucide/svelte/icons/sparkles";
   import Speaker from "@lucide/svelte/icons/speaker";
@@ -32,11 +33,22 @@
   let obsInputs: string[] = $state([]);
   let obsError = $state(false);
   let processes: string[] = $state([]);
+  let icons: Record<string, string> = $state({});
   let saving = $state(false);
   let errorText = $state("");
 
+  // names already sent to GetProcessIcons, to avoid re-requesting on every
+  // sessions refresh
+  const requestedIcons = new Set<string>();
+
   // covered by the "special" tab, so hidden from the apps list
   const specialSessionKeys = ["master", "system", "mic"];
+
+  // sessions shown on the apps tab (devices and special targets have their
+  // own tabs); also the set of sessions that get process icons
+  const appSessions = $derived(
+    app.sessions.filter((session) => !session.isDevice && !specialSessionKeys.includes(session.key)),
+  );
 
   // take a fresh copy of the slider's targets every time the dialog opens
   $effect(() => {
@@ -67,6 +79,26 @@
     }
   }
 
+  // fetch icons
+  $effect(() => {
+    if (!open) return;
+    void loadIcons([...appSessions.map((session) => session.key), ...processes]);
+  });
+
+  async function loadIcons(names: string[]) {
+    const wanted = names.filter((name) => !requestedIcons.has(name));
+    if (wanted.length === 0) return;
+    wanted.forEach((name) => requestedIcons.add(name));
+    try {
+      const result = await SettingsService.GetProcessIcons(wanted);
+      for (const [name, icon] of Object.entries(result ?? {})) {
+        if (icon) icons[name] = icon;
+      }
+    } catch {
+      // no icons
+    }
+  }
+
   async function loadObsInputs() {
     obsError = false;
     try {
@@ -81,14 +113,12 @@
 
   const appItems = $derived.by(() => {
     const query = appSearch.trim().toLowerCase();
-    return app.sessions
-      .filter((session) => !session.isDevice && !specialSessionKeys.includes(session.key))
-      .filter(
-        (session) =>
-          query === "" ||
-          session.key.includes(query) ||
-          (session.displayName ?? "").toLowerCase().includes(query),
-      );
+    return appSessions.filter(
+      (session) =>
+        query === "" ||
+        session.key.includes(query) ||
+        (session.displayName ?? "").toLowerCase().includes(query),
+    );
   });
 
   // running processes without an audio session, offered as dimmed
@@ -203,12 +233,18 @@
   </button>
 {/snippet}
 
-{#snippet itemRow(target: string, label: string, hint: string, dimmed: boolean = false)}
+{#snippet itemRow(target: string, label: string, hint: string, dimmed: boolean = false, icon: string | typeof Speaker | undefined = undefined)}
   <button
     type="button"
     class="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm transition-colors hover:bg-chip {dimmed && !isSelected(target) ? 'opacity-60 hover:opacity-100' : ''}"
     onclick={() => toggle(target)}
   >
+    {#if typeof icon === "string"}
+      <img src={icon} alt="" class="size-4 shrink-0" draggable="false" />
+    {:else if icon}
+      {@const RowIcon = icon}
+      <RowIcon size={16} class="shrink-0 text-muted" />
+    {/if}
     <span class="flex min-w-0 flex-1 flex-col">
       <span class="truncate">{label}</span>
       {#if hint}
@@ -302,6 +338,8 @@
                   session.key,
                   session.displayName || prettifyProcessName(session.key),
                   session.displayName ? session.key : "",
+                  false,
+                  icons[session.key] ?? AppWindow,
                 )}
               {:else}
                 {#if freeText === "" && processItems.length === 0}
@@ -313,7 +351,13 @@
                   {m.otherProcesses()}
                 </div>
                 {#each processItems as name (name)}
-                  {@render itemRow(name, prettifyProcessName(name), name.toLowerCase().endsWith(".exe") ? name : "", true)}
+                  {@render itemRow(
+                    name,
+                    prettifyProcessName(name),
+                    name.toLowerCase().endsWith(".exe") ? name : "",
+                    true,
+                    icons[name] ?? AppWindow,
+                  )}
                 {/each}
               {/if}
             </div>
@@ -323,7 +367,7 @@
             <input type="text" class="input shrink-0" placeholder={m.searchDevices()} bind:value={deviceSearch} />
             <div class="min-h-0 flex-1 overflow-y-auto">
               {#each deviceItems as session (session.key)}
-                {@render itemRow(session.key, session.displayName || session.key, "")}
+                {@render itemRow(session.key, session.displayName || session.key, "", false, session.isInput ? Mic : Speaker)}
               {:else}
                 <div class="hint px-2 py-1.5">{m.noDevices()}</div>
               {/each}

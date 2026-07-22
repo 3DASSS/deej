@@ -42,9 +42,18 @@ export function GetOBSInputs(): $CancellablePromise<string[]> {
 }
 
 /**
+ * GetProcessIcons returns PNG data URIs for the icons of the given process
+ * names, keyed by the names exactly as passed. Icons are cached across calls
+ */
+export function GetProcessIcons(names: string[]): $CancellablePromise<{ [_ in string]?: string }> {
+    return $Call.ByID(3155775785, names).then(($result: any) => {
+        return $$createType2($result);
+    });
+}
+
+/**
  * GetProcesses returns the deduplicated, sorted executable names of all
- * running processes, so the target picker can suggest apps that aren't
- * currently playing audio
+ * running processes
  */
 export function GetProcesses(): $CancellablePromise<string[]> {
     return $Call.ByID(3688174489).then(($result: any) => {
@@ -58,7 +67,7 @@ export function GetProcesses(): $CancellablePromise<string[]> {
  */
 export function GetSessions(): $CancellablePromise<$models.SessionInfoDTO[]> {
     return $Call.ByID(1202968053).then(($result: any) => {
-        return $$createType3($result);
+        return $$createType4($result);
     });
 }
 
@@ -67,7 +76,7 @@ export function GetSessions(): $CancellablePromise<$models.SessionInfoDTO[]> {
  */
 export function GetSettings(): $CancellablePromise<$models.Settings> {
     return $Call.ByID(1935164325).then(($result: any) => {
-        return $$createType4($result);
+        return $$createType5($result);
     });
 }
 
@@ -77,7 +86,7 @@ export function GetSettings(): $CancellablePromise<$models.Settings> {
  */
 export function GetStatus(): $CancellablePromise<$models.StatusDTO> {
     return $Call.ByID(4223089242).then(($result: any) => {
-        return $$createType5($result);
+        return $$createType6($result);
     });
 }
 
@@ -86,7 +95,7 @@ export function GetStatus(): $CancellablePromise<$models.StatusDTO> {
  */
 export function ListSerialPorts(): $CancellablePromise<$models.SerialPortDTO[]> {
     return $Call.ByID(102515344).then(($result: any) => {
-        return $$createType7($result);
+        return $$createType8($result);
     });
 }
 
@@ -109,9 +118,10 @@ export function SetAutostart(state: boolean): $CancellablePromise<void> {
 // Private type creation functions
 const $$createType0 = $models.AppInfoDTO.createFrom;
 const $$createType1 = $Create.Array($Create.Any);
-const $$createType2 = $models.SessionInfoDTO.createFrom;
-const $$createType3 = $Create.Array($$createType2);
-const $$createType4 = $models.Settings.createFrom;
-const $$createType5 = $models.StatusDTO.createFrom;
-const $$createType6 = $models.SerialPortDTO.createFrom;
-const $$createType7 = $Create.Array($$createType6);
+const $$createType2 = $Create.Map($Create.Any, $Create.Any);
+const $$createType3 = $models.SessionInfoDTO.createFrom;
+const $$createType4 = $Create.Array($$createType3);
+const $$createType5 = $models.Settings.createFrom;
+const $$createType6 = $models.StatusDTO.createFrom;
+const $$createType7 = $models.SerialPortDTO.createFrom;
+const $$createType8 = $Create.Array($$createType7);

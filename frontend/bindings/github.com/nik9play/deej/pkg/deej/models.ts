@@ -184,6 +184,11 @@ export class SessionInfoDTO {
      */
     "isDevice": boolean;
 
+    /**
+     * capture-side session (microphone)
+     */
+    "isInput": boolean;
+
     /** Creates a new SessionInfoDTO instance. */
     constructor($$source: Partial<SessionInfoDTO> = {}) {
         if (!("key" in $$source)) {
@@ -194,6 +199,9 @@ export class SessionInfoDTO {
         }
         if (!("isDevice" in $$source)) {
             this["isDevice"] = false;
+        }
+        if (!("isInput" in $$source)) {
+            this["isInput"] = false;
         }
 
         Object.assign(this, $$source);

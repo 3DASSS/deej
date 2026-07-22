@@ -26,6 +26,10 @@ type Session interface {
 	// master/mic session)
 	IsDevice() bool
 
+	// IsInput returns true for capture-side sessions (microphones and other
+	// input devices)
+	IsInput() bool
+
 	Release()
 }
 
@@ -44,6 +48,7 @@ type baseSession struct {
 	system bool
 	master bool
 	device bool
+	input  bool
 
 	// used by Key(), needs to be set by child
 	name string
@@ -61,6 +66,10 @@ func (s *baseSession) DisplayName() string {
 
 func (s *baseSession) IsDevice() bool {
 	return s.device
+}
+
+func (s *baseSession) IsInput() bool {
+	return s.input
 }
 
 func (s *baseSession) Key() string {

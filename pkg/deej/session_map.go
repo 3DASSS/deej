@@ -477,6 +477,9 @@ func (m *sessionMap) sessionInfos() []SessionInfoDTO {
 			if session.IsDevice() {
 				info.IsDevice = true
 			}
+			if session.IsInput() {
+				info.IsInput = true
+			}
 			if info.DisplayName == "" {
 				info.DisplayName = session.DisplayName()
 			}
