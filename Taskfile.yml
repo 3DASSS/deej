@@ -1,0 +1,84 @@
+version: "3"
+
+# deej build orchestration. This is the Task (https://taskfile.dev) build system
+# that also underpins `wails3 build`/`wails3 task`. It keeps deej's own bits that
+# don't fit the default wails3 layout: the Inno Setup installer
+# (scripts/windows/installer.iss), winres dual-arch resources, and the custom
+# version ldflags. Invoke with `task <name>` or `wails3 task <name>`.
+
+includes:
+  windows:
+    taskfile: ./Taskfile.windows.yml
+    dir: "{{.ROOT_DIR}}"
+    vars: &platformvars
+      BIN_DIR: "{{.BIN_DIR}}"
+      LDFLAGS: "{{.LDFLAGS}}"
+      VERSION_TAG: "{{.VERSION_TAG}}"
+  linux:
+    taskfile: ./Taskfile.linux.yml
+    dir: "{{.ROOT_DIR}}"
+    vars: *platformvars
+
+vars:
+  APP_NAME: deej
+  BIN_DIR: build
+  # git-derived build metadata, injected into the binary via ldflags
+  GIT_COMMIT:
+    sh: git rev-list -1 --abbrev-commit HEAD
+  VERSION_TAG:
+    sh: git describe --tags --always
+  LDFLAGS: -X main.gitCommit={{.GIT_COMMIT}} -X main.versionTag={{.VERSION_TAG}}
+
+tasks:
+  default:
+    desc: List the available tasks
+    cmds:
+      - cmd: echo "Run 'task --list' (or 'wails3 task --list') to see available tasks."
+        silent: true
+
+  frontend:build:
+    desc: Build the embedded Svelte settings UI (frontend/dist)
+    dir: frontend
+    cmds:
+      - cmd: test -d node_modules || npm ci
+      - npm run build
+
+  generate:bindings:
+    desc: Regenerate the Wails Go->TS bindings (requires the wails3 CLI)
+    cmds:
+      - wails3 generate bindings -ts -silent ./pkg/...
+
+  build:
+    desc: Build deej for the current OS (release)
+    cmds:
+      - task: "{{OS}}:build"
+
+  test:
+    desc: Run the Go test suite
+    cmds:
+      - go test ./...
+
+  dev:
+    desc: Run deej in Wails dev mode (Go rebuild-on-change + Vite HMR for the settings UI)
+    cmds:
+      # reads build/config.yml; sets FRONTEND_DEVSERVER_URL + WAILS_VITE_PORT and
+      # drives the dev:* tasks below. Needs the wails3 CLI on PATH.
+      - wails3 dev
+
+  dev:frontend:
+    desc: Start the Vite dev server for the settings UI (invoked by `wails3 dev`)
+    dir: frontend
+    cmds:
+      - cmd: test -d node_modules || npm ci
+      # honours WAILS_VITE_PORT (set by `wails3 dev`); vite.config.ts reads it
+      - npm run dev
+
+  dev:app:build:
+    desc: Build the dev binary WITHOUT re-embedding the frontend (invoked by `wails3 dev`)
+    cmds:
+      - task: "{{OS}}:build:dev:live"
+
+  dev:app:run:
+    desc: Run the dev binary; inherits FRONTEND_DEVSERVER_URL so assets load from Vite (invoked by `wails3 dev`)
+    cmds:
+      - task: "{{OS}}:run:dev"

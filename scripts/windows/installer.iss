@@ -45,6 +45,8 @@ Name: "russian"; MessagesFile: "compiler:Languages\Russian.isl"
 [CustomMessages]
 english.EditConfig=Edit config file
 russian.EditConfig=Редактировать конфигурацию
+english.WV2Prompt=deej needs the Microsoft Edge WebView2 runtime for its settings window, but it was not found on this PC. Open the download page now?
+russian.WV2Prompt=Для окна настроек deej требуется среда выполнения Microsoft Edge WebView2, но она не найдена на этом компьютере. Открыть страницу загрузки?
 
 [Tasks]
 Name: "autostart"; Description: "{cm:AutoStartProgram,{#AppName}}"
@@ -77,3 +79,32 @@ Type: filesandordirs; Name: "{app}/logs"
 [UninstallRun]
 ; kill deej on uninstall
 Filename: {sys}\taskkill.exe; Parameters: "/f /im {#AppExeName}"; Flags: skipifdoesntexist runhidden; RunOnceId: "KillProc"
+
+[Code]
+// deej's settings window is rendered by Edge WebView2. Recent Windows 10/11 ship
+// the runtime in-box, but older/LTSC/Server images may not. We don't bundle the
+// runtime; instead we detect it and, if missing, offer to open the download page.
+// The runtime registers under a fixed GUID: system-wide installs land under
+// HKLM\...\WOW6432Node (even on 64-bit), per-user installs under HKCU.
+function WebView2Missing(): Boolean;
+var
+  Version: string;
+begin
+  Result := not (
+    RegQueryStringValue(HKLM, 'SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}', 'pv', Version)
+    or RegQueryStringValue(HKCU, 'Software\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}', 'pv', Version));
+  // treat an empty or 0.0.0.0 version as "not installed"
+  if not Result and ((Version = '') or (Version = '0.0.0.0')) then
+    Result := True;
+end;
+
+procedure CurStepChanged(CurStep: TSetupStep);
+var
+  ResultCode: Integer;
+begin
+  if (CurStep = ssPostInstall) and WebView2Missing() then
+  begin
+    if MsgBox(ExpandConstant('{cm:WV2Prompt}'), mbConfirmation, MB_YESNO) = IDYES then
+      ShellExec('open', 'https://developer.microsoft.com/microsoft-edge/webview2/', '', '', SW_SHOW, ewNoWait, ResultCode);
+  end;
+end;

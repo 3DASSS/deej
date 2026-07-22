@@ -1,0 +1,252 @@
+@import "tailwindcss";
+
+/* theme tokens; monochrome black & white, light values with dark overrides via
+   prefers-color-scheme, exposed to tailwind through @theme inline */
+:root {
+  --ui-surface: #fafafa;
+  --ui-card: #ffffff;
+  --ui-body: #0a0a0a;
+  --ui-muted: #737373;
+  --ui-edge: #e4e4e4;
+  --ui-accent: #0a0a0a;
+  --ui-on-accent: #ffffff;
+  --ui-danger: #171717;
+  --ui-success: #171717;
+  --ui-field: #ffffff;
+  --ui-chip: #f0f0f0;
+  --ui-track: #e4e4e4;
+
+  color-scheme: light dark;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --ui-surface: #0a0a0a;
+    --ui-card: #161616;
+    --ui-body: #f2f2f2;
+    --ui-muted: #8a8a8a;
+    --ui-edge: #2a2a2a;
+    --ui-accent: #f2f2f2;
+    --ui-on-accent: #0a0a0a;
+    --ui-danger: #e5e5e5;
+    --ui-success: #e5e5e5;
+    --ui-field: #0f0f0f;
+    --ui-chip: #1e1e1e;
+    --ui-track: #262626;
+  }
+}
+
+@theme inline {
+  --color-surface: var(--ui-surface);
+  --color-card: var(--ui-card);
+  --color-body: var(--ui-body);
+  --color-muted: var(--ui-muted);
+  --color-edge: var(--ui-edge);
+  --color-accent: var(--ui-accent);
+  --color-on-accent: var(--ui-on-accent);
+  --color-danger: var(--ui-danger);
+  --color-success: var(--ui-success);
+  --color-field: var(--ui-field);
+  --color-chip: var(--ui-chip);
+  --color-track: var(--ui-track);
+
+  --font-sans: "Segoe UI", system-ui, -apple-system, sans-serif;
+}
+
+@layer base {
+  html,
+  body {
+    height: 100%;
+    overflow: hidden;
+  }
+
+  body {
+    @apply bg-surface font-sans text-sm text-body select-none;
+    cursor: default;
+  }
+
+  #app {
+    height: 100dvh;
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* never show the text/hand cursors; everything is a default arrow */
+  button,
+  a,
+  [role="button"],
+  label,
+  summary {
+    cursor: default;
+  }
+
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: var(--ui-edge);
+    border-radius: 4px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+}
+
+@layer components {
+  .input {
+    @apply w-full rounded-md border border-edge bg-field px-2.5 py-1.5 text-sm text-body focus-visible:outline-2 focus-visible:outline-accent/80;
+  }
+
+  .label {
+    @apply text-[13px] font-semibold;
+  }
+
+  .hint {
+    @apply text-xs text-muted;
+  }
+
+  /* macOS-style secondary button: semitransparent white/grey gradient with a
+     bright top highlight. borderless; instant hover/press, no transition. */
+  .btn {
+    @apply rounded-md bg-linear-to-b from-white/90 to-neutral-100/70 px-3.5 py-1.5 text-sm font-medium text-body
+      shadow-[inset_0_1px_0_rgb(255_255_255/0.9),0_1px_2px_rgb(0_0_0/0.12)]
+      enabled:hover:from-white enabled:hover:to-neutral-200/80
+      enabled:active:from-neutral-100/90 enabled:active:to-neutral-200/90
+      focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-50
+      dark:from-white/10 dark:to-white/5
+      dark:shadow-[inset_0_1px_0_rgb(255_255_255/0.2),0_1px_2px_rgb(0_0_0/0.45)]
+      dark:enabled:hover:from-white/20 dark:enabled:hover:to-white/10
+      dark:enabled:active:from-white/5 dark:enabled:active:to-white/5;
+  }
+
+  /* monochrome accent: near-black in light mode, near-white in dark mode */
+  .btn-primary {
+    @apply bg-linear-to-b from-neutral-700 to-neutral-900 font-semibold text-on-accent
+      shadow-[inset_0_1px_0_rgb(255_255_255/0.25),0_1px_2px_rgb(0_0_0/0.35)]
+      enabled:hover:from-neutral-600 enabled:hover:to-neutral-800
+      enabled:active:from-neutral-900 enabled:active:to-neutral-900
+      enabled:active:shadow-[inset_0_1px_3px_rgb(0_0_0/0.6)]
+      dark:from-white dark:to-neutral-300
+      dark:shadow-[inset_0_1px_0_rgb(255_255_255/0.9),0_1px_2px_rgb(0_0_0/0.45)]
+      dark:enabled:hover:from-white dark:enabled:hover:to-neutral-200
+      dark:enabled:active:from-neutral-300 dark:enabled:active:to-neutral-400
+      dark:enabled:active:shadow-[inset_0_1px_3px_rgb(0_0_0/0.25)];
+  }
+
+  .card {
+    @apply rounded-lg border border-edge bg-card p-4;
+  }
+
+  /* dialog panel with the same bright top highlight as the buttons */
+  .dialog {
+    @apply rounded-lg border border-edge bg-surface;
+  }
+
+  /* horizontal tick marks every 10%, drawn upward from the bottom edge in
+     currentColor; layered over both the filled and unfilled slider zones */
+  .slider-ticks {
+    background-image: repeating-linear-gradient(to top, currentColor 0 1px, transparent 1px 10%);
+  }
+}
+
+/* Fluent-style enter/exit motion. bits-ui delays unmount until these finish,
+   so the same classes drive both open and close. */
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes fade-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+/* Only animate `transform` (scale + slide); Tailwind v4 centers the dialog with
+   the independent `translate` property, so the two compose without conflict. */
+@keyframes dialog-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes dialog-out {
+  from {
+    opacity: 1;
+    transform: none;
+  }
+  to {
+    opacity: 0;
+    transform: translateY(8px) scale(0.96);
+  }
+}
+
+@keyframes popover-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes popover-out {
+  from {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.98);
+  }
+}
+
+/* Fluent motion curve: decelerate on the way in, accelerate on the way out. */
+.anim-overlay[data-state="open"] {
+  animation: fade-in 160ms cubic-bezier(0.1, 0.9, 0.2, 1);
+}
+.anim-overlay[data-state="closed"] {
+  animation: fade-out 130ms cubic-bezier(0.4, 0, 1, 1);
+}
+
+.anim-dialog[data-state="open"] {
+  animation: dialog-in 200ms cubic-bezier(0.1, 0.9, 0.2, 1);
+}
+.anim-dialog[data-state="closed"] {
+  animation: dialog-out 150ms cubic-bezier(0.4, 0, 1, 1);
+}
+
+/* Popovers use "open"; tooltips use "delayed-open"/"instant-open". */
+.anim-popover[data-state="open"],
+.anim-popover[data-state="delayed-open"],
+.anim-popover[data-state="instant-open"] {
+  animation: popover-in 150ms cubic-bezier(0.1, 0.9, 0.2, 1);
+}
+.anim-popover[data-state="closed"] {
+  animation: popover-out 110ms cubic-bezier(0.4, 0, 1, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .anim-overlay[data-state],
+  .anim-dialog[data-state],
+  .anim-popover[data-state] {
+    animation-duration: 1ms;
+  }
+}

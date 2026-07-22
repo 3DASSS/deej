@@ -1,14 +1,41 @@
+//go:build !headless
+
 package deej
 
 import (
+	"io/fs"
+	"log/slog"
 	"strconv"
 	"strings"
+	"sync"
+	"time"
 
-	"fyne.io/systray"
 	"github.com/nicksnyder/go-i18n/v2/i18n"
+	"github.com/wailsapp/wails/v3/pkg/application"
+	"github.com/wailsapp/wails/v3/pkg/events"
 
+	"github.com/nik9play/deej/frontend"
 	"github.com/nik9play/deej/pkg/deej/util"
 	"github.com/nik9play/deej/pkg/icon"
+)
+
+// trayState holds the wails application that powers the tray icon and settings window
+type trayState struct {
+	app          *application.App
+	shutdownDone chan struct{}
+
+	// guards against concurrent settings window creation
+	settingsLock sync.Mutex
+}
+
+const settingsWindowName = "deej-settings"
+
+// wails events pushed to the settings window
+const (
+	eventSliders  = "deej:sliders"  // []float32, 0..1 per slider
+	eventState    = "deej:state"    // {connected bool, comPort string}
+	eventConfig   = "deej:config"   // no payload; config was (re)applied
+	eventSessions = "deej:sessions" // no payload; audio sessions changed
 )
 
 func getConfigItemText(d *Deej) (string, string) {
@@ -43,6 +70,23 @@ func getSettingsItemText(d *Deej) (string, string) {
 	})
 
 	return configTitle, configDescription
+}
+
+func getOpenSettingsItemText(d *Deej) (string, string) {
+	openSettingsTitle := d.localizer.MustLocalize(&i18n.LocalizeConfig{
+		DefaultMessage: &i18n.Message{
+			ID:    "OpenSettingsTitle",
+			Other: "Open settings",
+		},
+	})
+	openSettingsDescription := d.localizer.MustLocalize(&i18n.LocalizeConfig{
+		DefaultMessage: &i18n.Message{
+			ID:    "OpenSettingsDescription",
+			Other: "Open the settings window",
+		},
+	})
+
+	return openSettingsTitle, openSettingsDescription
 }
 
 func getAutostartItemText(d *Deej) (string, string) {
@@ -131,135 +175,213 @@ func getSessionsCountString(d *Deej) string {
 func (d *Deej) initializeTray(onDone func()) {
 	logger := d.logger.Named("tray")
 
-	onReady := func() {
+	d.tray.shutdownDone = make(chan struct{})
+
+	dist, err := fs.Sub(frontend.Dist, "dist")
+	if err != nil {
+		logger.Errorw("Failed to open frontend assets", "error", err)
+	}
+
+	app := application.New(application.Options{
+		Name: "deej",
+		Icon: icon.TrayDeejLogo,
+		// deej sets up its own interrupt handler
+		DisableDefaultSignalHandler: true,
+		// keep running with zero open windows; the tray is the app
+		Windows: application.WindowsOptions{DisableQuitOnLastWindowClosed: true},
+		Linux:   application.LinuxOptions{DisableQuitOnLastWindowClosed: true},
+		Assets:  application.AssetOptions{Handler: application.AssetFileServerFS(dist)},
+		Services: []application.Service{
+			application.NewService(newSettingsService(d)),
+		},
+		PostShutdown: func() {
+			close(d.tray.shutdownDone)
+		},
+		LogLevel: slog.LevelError,
+	})
+	d.tray.app = app
+
+	tray := app.SystemTray.New()
+	tray.SetIcon(icon.TrayDeejLogo)
+	tray.SetTooltip("deej")
+
+	setTooltip := func() {
+		title := "deej\n" + getStatusItemTitle(d)
+		if d.serial.GetState() {
+			title += "\n" + getValuesString(d)
+		}
+		tray.SetTooltip(title)
+	}
+
+	menu := app.NewMenu()
+
+	settingsTitle, _ := getSettingsItemText(d)
+	settings := menu.AddSubmenu(settingsTitle)
+
+	openSettingsTitle, _ := getOpenSettingsItemText(d)
+	settings.Add(openSettingsTitle).OnClick(func(*application.Context) {
+		logger.Info("Open settings menu item clicked, opening settings window")
+
+		d.openSettingsWindow()
+	})
+
+	configTitle, _ := getConfigItemText(d)
+	settings.Add(configTitle).OnClick(func(*application.Context) {
+		logger.Info("Edit config menu item clicked, opening config for editing")
+
+		if err := util.OpenExternal(logger, d.config.configPath); err != nil {
+			logger.Warnw("Failed to open config file for editing", "error", err)
+		}
+	})
+
+	if !util.Linux() {
+		autostartTitle, _ := getAutostartItemText(d)
+		settings.AddCheckbox(autostartTitle, util.GetAutostartState()).OnClick(func(ctx *application.Context) {
+			if err := util.SetAutostartState(ctx.ClickedMenuItem().Checked()); err != nil {
+				logger.Warnw("Failed to set autostart state", "error", err)
+			}
+		})
+	}
+
+	menu.AddSeparator()
+
+	statusInfo := menu.Add(getStatusItemTitle(d)).SetEnabled(false)
+
+	valuesInfo := menu.Add("...").SetEnabled(false).SetHidden(true)
+
+	setValuesInfo := func() {
+		if d.serial.GetState() {
+			valuesInfo.SetLabel(getValuesString(d))
+			valuesInfo.SetHidden(false)
+		} else {
+			valuesInfo.SetHidden(true)
+		}
+	}
+
+	sessionsInfo := menu.Add(getSessionsCountString(d)).SetEnabled(false)
+
+	if d.version != "" {
+		menu.Add(d.version).SetEnabled(false)
+	}
+
+	menu.AddSeparator()
+
+	quitTitle, _ := getQuitItemText(d)
+	menu.Add(quitTitle).OnClick(func(*application.Context) {
+		logger.Info("Quit menu item clicked, stopping")
+
+		d.signalStop()
+	})
+
+	tray.SetMenu(menu)
+
+	tray.OnDoubleClick(func() {
+		d.openSettingsWindow()
+	})
+
+	app.Event.OnApplicationEvent(events.Common.ApplicationStarted, func(*application.ApplicationEvent) {
 		logger.Debug("Tray instance ready")
 
-		systray.SetTemplateIcon(icon.TrayDeejLogo, icon.TrayDeejLogo)
-
-		systray.SetTooltip("deej")
-
-		setTooltip := func() {
-			title := "deej\n" + getStatusItemTitle(d)
-			if d.serial.GetState() {
-				title += "\n" + getValuesString(d)
-			}
-			systray.SetTooltip(title)
-		}
 		setTooltip()
-
-		settingsTitle, settingsDescription := getSettingsItemText(d)
-		settings := systray.AddMenuItem(settingsTitle, settingsDescription)
-		settings.SetIcon(icon.EditConfigIcon)
-
-		configTitle, configDescription := getConfigItemText(d)
-		editConfig := settings.AddSubMenuItem(configTitle, configDescription)
-
-		autostartTitle, autostartDescription := getAutostartItemText(d)
-		autostart := settings.AddSubMenuItemCheckbox(autostartTitle, autostartDescription, util.GetAutostartState())
-
-		if util.Linux() {
-			autostart.Hide()
-		}
-
-		systray.AddSeparator()
-
-		statusInfo := systray.AddMenuItem(getStatusItemTitle(d), "")
-		statusInfo.Disable()
-
-		valuesInfo := systray.AddMenuItem("...", "")
-		valuesInfo.Disable()
-		valuesInfo.Hide()
-
-		setValuesInfo := func() {
-			if d.serial.GetState() {
-				valuesInfo.SetTitle(getValuesString(d))
-				valuesInfo.Show()
-			} else {
-				valuesInfo.Hide()
-			}
-		}
-		setValuesInfo()
-
-		sessionsInfo := systray.AddMenuItem(getSessionsCountString(d), "")
-		sessionsInfo.Disable()
-
-		setSessionsInfo := func() {
-			sessionsInfo.SetTitle(getSessionsCountString(d))
-		}
-
-		if d.version != "" {
-			versionInfo := systray.AddMenuItem(d.version, "")
-			versionInfo.Disable()
-		}
-
-		systray.AddSeparator()
-
-		quitTitle, quitDescription := getQuitItemText(d)
-		quit := systray.AddMenuItem(quitTitle, quitDescription)
 
 		sliderMovedChannel := d.serial.SubscribeToSliderMoveEvents()
 		stateChangeChannel := d.serial.SubscribeToStateChangeEvent()
 		sessionCountChangeChannel := d.sessions.SubscribeToSessionCountChange()
+		configReloadedChannel := d.config.SubscribeToChanges()
 
-		// wait on things to happen
+		emitState := func() {
+			app.Event.Emit(eventState, map[string]any{
+				"connected": d.serial.GetState(),
+				"comPort":   d.serial.CurrentComPort(),
+			})
+		}
+
+		// wait on things to happen; menu item mutations must run on the wails main thread
 		go func() {
 			for {
 				select {
 				// slider moved
 				case <-sliderMovedChannel:
 					setTooltip()
-					setValuesInfo()
+					application.InvokeAsync(setValuesInfo)
+					app.Event.Emit(eventSliders, d.serial.CurrentSliderPercentValues())
 
 				// connection state changed
 				case <-stateChangeChannel:
 					setTooltip()
-					setValuesInfo()
-					statusInfo.SetTitle(getStatusItemTitle(d))
+					application.InvokeAsync(func() {
+						setValuesInfo()
+						statusInfo.SetLabel(getStatusItemTitle(d))
+					})
+					emitState()
+					app.Event.Emit(eventSliders, d.serial.CurrentSliderPercentValues())
 
 				// session count changed
 				case <-sessionCountChangeChannel:
-					setSessionsInfo()
+					application.InvokeAsync(func() {
+						sessionsInfo.SetLabel(getSessionsCountString(d))
+					})
+					app.Event.Emit(eventSessions)
 
-				// quit
-				case <-quit.ClickedCh:
-					logger.Info("Quit menu item clicked, stopping")
-
-					d.signalStop()
-
-				// edit config
-				case <-editConfig.ClickedCh:
-					logger.Info("Edit config menu item clicked, opening config for editing")
-
-					if err := util.OpenExternal(logger, d.config.configPath); err != nil {
-						logger.Warnw("Failed to open config file for editing", "error", err)
-					}
-
-				case <-autostart.ClickedCh:
-					util.SetAutostartState(!util.GetAutostartState())
-					if util.GetAutostartState() {
-						autostart.Check()
-					} else {
-						autostart.Uncheck()
-					}
-
+				// config applied (GUI save or manual edit)
+				case <-configReloadedChannel:
+					app.Event.Emit(eventConfig)
+					emitState()
+					app.Event.Emit(eventSliders, d.serial.CurrentSliderPercentValues())
 				}
 			}
 		}()
 
 		// actually start the main runtime
 		go onDone()
-	}
-
-	onExit := func() {
-		logger.Debug("Tray exited")
-	}
+	})
 
 	// start the tray icon
 	logger.Debug("Running in tray")
-	systray.Run(onReady, onExit)
+	if err := app.Run(); err != nil {
+		logger.Errorw("Wails application exited with error", "error", err)
+	}
+}
+
+// openSettingsWindow creates a fresh settings window, or focuses the existing
+// one if it's already open. The window is fully destroyed when closed
+func (d *Deej) openSettingsWindow() {
+	d.tray.settingsLock.Lock()
+	defer d.tray.settingsLock.Unlock()
+
+	if win, ok := d.tray.app.Window.GetByName(settingsWindowName); ok {
+		win.Restore()
+		win.Focus()
+		return
+	}
+
+	settingsTitle, _ := getSettingsItemText(d)
+
+	d.tray.app.Window.NewWithOptions(application.WebviewWindowOptions{
+		Name:      settingsWindowName,
+		Title:     "deej - " + settingsTitle,
+		Width:     880,
+		Height:    620,
+		MinWidth:  800,
+		MinHeight: 600,
+		Frameless: true,
+		URL:       "/",
+	})
 }
 
 func (d *Deej) stopTray() {
+	if d.tray.app == nil {
+		return
+	}
+
 	d.logger.Debug("Quitting tray")
-	systray.Quit()
+	d.tray.app.Quit()
+
+	// wait for wails to tear down the tray icon and any open windows before
+	// run() exits the process, to avoid leaving a ghost tray icon behind
+	select {
+	case <-d.tray.shutdownDone:
+	case <-time.After(5 * time.Second):
+		d.logger.Warn("Timed out waiting for tray shutdown")
+	}
 }

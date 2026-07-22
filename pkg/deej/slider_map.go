@@ -2,10 +2,8 @@ package deej
 
 import (
 	"fmt"
-	"strconv"
+	"slices"
 	"sync"
-
-	"github.com/thoas/go-funk"
 )
 
 type sliderMap struct {
@@ -20,33 +18,13 @@ func newSliderMap() *sliderMap {
 	}
 }
 
-func sliderMapFromConfigs(userMapping map[string][]string, internalMapping map[string][]string) *sliderMap {
+func sliderMapFromSettings(mapping SliderMappings) *sliderMap {
 	resultMap := newSliderMap()
 
-	// copy targets from user config, ignoring empty values
-	for sliderIdxString, targets := range userMapping {
-		sliderIdx, _ := strconv.Atoi(sliderIdxString)
-
-		resultMap.set(sliderIdx, funk.FilterString(targets, func(s string) bool {
-			return s != ""
-		}))
-	}
-
-	// add targets from internal configs, ignoring duplicate or empty values
-	for sliderIdxString, targets := range internalMapping {
-		sliderIdx, _ := strconv.Atoi(sliderIdxString)
-
-		existingTargets, ok := resultMap.get(sliderIdx)
-		if !ok {
-			existingTargets = []string{}
-		}
-
-		filteredTargets := funk.FilterString(targets, func(s string) bool {
-			return (!funk.ContainsString(existingTargets, s)) && s != ""
-		})
-
-		existingTargets = append(existingTargets, filteredTargets...)
-		resultMap.set(sliderIdx, existingTargets)
+	// copy targets from the config, ignoring empty values
+	for _, entry := range mapping {
+		targets := slices.DeleteFunc(slices.Clone(entry.Targets), func(s string) bool { return s == "" })
+		resultMap.set(entry.Slider, targets)
 	}
 
 	return resultMap

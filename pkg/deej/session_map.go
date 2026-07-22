@@ -2,11 +2,12 @@ package deej
 
 import (
 	"fmt"
+	"slices"
+	"sort"
 	"strings"
 	"sync"
 
 	"github.com/nik9play/deej/pkg/deej/util"
-	"github.com/thoas/go-funk"
 	"go.uber.org/zap"
 )
 
@@ -230,13 +231,29 @@ func (m *sessionMap) removeSessionLocked(session Session) {
 	}
 }
 
+// uniqueStrings returns the input without duplicates, preserving order
+func uniqueStrings(in []string) []string {
+	seen := make(map[string]struct{}, len(in))
+	out := make([]string, 0, len(in))
+
+	for _, s := range in {
+		if _, ok := seen[s]; ok {
+			continue
+		}
+		seen[s] = struct{}{}
+		out = append(out, s)
+	}
+
+	return out
+}
+
 // returns true if a session is not currently mapped to any slider, false otherwise
 // special sessions (master, system, mic) and device-specific sessions always count as mapped,
 // even when absent from the config. this makes sense for every current feature that uses "unmapped sessions"
 func (m *sessionMap) sessionMapped(session Session) bool {
 
 	// count master/system/mic as mapped
-	if funk.ContainsString([]string{masterSessionName, systemSessionName, inputSessionName}, session.Key()) {
+	if slices.Contains([]string{masterSessionName, systemSessionName, inputSessionName}, session.Key()) {
 		return true
 	}
 
@@ -388,8 +405,8 @@ func (m *sessionMap) applyTargetTransform(specialTargetName string) []string {
 			currentWindowProcessNames[targetIdx] = strings.ToLower(target)
 		}
 
-		// remove dupes
-		return funk.UniqString(currentWindowProcessNames)
+		// remove dupes, preserving order
+		return uniqueStrings(currentWindowProcessNames)
 
 	// get currently unmapped sessions
 	case specialTargetAllUnmapped:
@@ -445,6 +462,34 @@ func (m *sessionMap) getSessionCount() int {
 	}
 
 	return count
+}
+
+// sessionInfos returns a sorted copy of the current session keys with
+// friendly display names, used by the settings GUI for target suggestions
+func (m *sessionMap) sessionInfos() []SessionInfoDTO {
+	m.lock.Lock()
+	defer m.lock.Unlock()
+
+	infos := make([]SessionInfoDTO, 0, len(m.m))
+	for key, sessions := range m.m {
+		info := SessionInfoDTO{Key: key}
+		for _, session := range sessions {
+			if session.IsDevice() {
+				info.IsDevice = true
+			}
+			if session.IsInput() {
+				info.IsInput = true
+			}
+			if info.DisplayName == "" {
+				info.DisplayName = session.DisplayName()
+			}
+		}
+		infos = append(infos, info)
+	}
+
+	sort.Slice(infos, func(i, j int) bool { return infos[i].Key < infos[j].Key })
+
+	return infos
 }
 
 func (m *sessionMap) String() string {

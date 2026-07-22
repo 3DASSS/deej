@@ -17,10 +17,18 @@ type Session interface {
 
 	Key() string
 
+	// DisplayName returns a human-friendly name for this session (e.g. the
+	// executable's file description), or "" if none is known
+	DisplayName() string
+
 	// IsDevice returns true for device master sessions (a specific audio
 	// device's volume, as opposed to a process session or the default
 	// master/mic session)
 	IsDevice() bool
+
+	// IsInput returns true for capture-side sessions (microphones and other
+	// input devices)
+	IsInput() bool
 
 	Release()
 }
@@ -40,16 +48,28 @@ type baseSession struct {
 	system bool
 	master bool
 	device bool
+	input  bool
 
 	// used by Key(), needs to be set by child
 	name string
 
 	// used by String(), needs to be set by child
 	humanReadableDesc string
+
+	// optional human-friendly name for the settings GUI, may be empty
+	displayName string
+}
+
+func (s *baseSession) DisplayName() string {
+	return s.displayName
 }
 
 func (s *baseSession) IsDevice() bool {
 	return s.device
+}
+
+func (s *baseSession) IsInput() bool {
+	return s.input
 }
 
 func (s *baseSession) Key() string {
