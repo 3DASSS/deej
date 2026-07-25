@@ -74,8 +74,10 @@
   "save": "Save",
   "revert": "Revert",
   "saved": "Settings saved",
+  "unsavedChanges": "Unsaved changes",
   "saveError": "Failed to save settings",
-  "loadError": "Failed to load settings",
+  "about": "About",
   "configPath": "Configuration file",
+  "configPathHint": "Can be edited by hand; changes are applied automatically.",
   "version": "Version"
 }

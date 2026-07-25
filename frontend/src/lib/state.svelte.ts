@@ -13,9 +13,9 @@ export const app = $state({
 
 export async function refreshSettings(): Promise<void> {
   try {
-    const loaded = await SettingsService.GetSettings();
-    // clone into a plain object so svelte's deep reactivity applies
-    app.settings = JSON.parse(JSON.stringify(loaded));
+    // snapshot into a plain object so svelte's deep reactivity applies (the
+    // wails bridge hands back class instances, which aren't made reactive)
+    app.settings = $state.snapshot(await SettingsService.GetSettings());
   } catch (err) {
     console.error("failed to load settings", err);
   }

@@ -12,7 +12,16 @@
     items,
     id,
     placeholder = "",
-  }: { value?: string; items: Item[]; id?: string; placeholder?: string } = $props();
+    required = false,
+    pattern,
+  }: {
+    value?: string;
+    items: Item[];
+    id?: string;
+    placeholder?: string;
+    required?: boolean;
+    pattern?: string;
+  } = $props();
 
   let search = $state("");
   let open = $state(false);
@@ -55,6 +64,8 @@
       {id}
       class="input pr-8"
       {placeholder}
+      {required}
+      {pattern}
       oninput={(e) => {
         value = e.currentTarget.value;
         search = e.currentTarget.value;

@@ -5,7 +5,17 @@
   import FieldCheckbox from "./ui/FieldCheckbox.svelte";
   import FieldSelect from "./ui/FieldSelect.svelte";
 
-  let { settings, appInfo }: { settings: Settings; appInfo: AppInfoDTO | null } = $props();
+  // these settings are cheap to apply, so they're written as soon as they
+  // change instead of behind a save button
+  let {
+    settings,
+    appInfo,
+    onsave,
+  }: {
+    settings: Settings;
+    appInfo: AppInfoDTO | null;
+    onsave: (patch: Partial<Settings>) => void;
+  } = $props();
 
   const languageItems = $derived([
     { value: "auto", label: m.languageAuto() },
@@ -41,7 +51,12 @@
 <section class="flex flex-col gap-4">
   <div class="flex max-w-xs flex-col gap-1">
     <label class="label" for="language">{m.language()}</label>
-    <FieldSelect id="language" ariaLabel={m.language()} bind:value={settings.language} items={languageItems} />
+    <FieldSelect
+      id="language"
+      ariaLabel={m.language()}
+      items={languageItems}
+      bind:value={() => settings.language, (language) => onsave({ language })}
+    />
     <div class="hint">{m.languageHint()}</div>
   </div>
 

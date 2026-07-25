@@ -206,7 +206,7 @@
     saving = true;
     errorText = "";
     try {
-      const dto: Settings = JSON.parse(JSON.stringify(app.settings));
+      const dto: Settings = $state.snapshot(app.settings);
       dto.sliderMapping = dto.sliderMapping.filter((entry) => entry.slider !== slider);
       if (targets.length > 0) {
         dto.sliderMapping.push({ slider, targets: [...targets] });
