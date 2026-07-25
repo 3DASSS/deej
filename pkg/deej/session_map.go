@@ -262,11 +262,9 @@ func (m *sessionMap) sessionMapped(session Session) bool {
 		return true
 	}
 
-	matchFound := false
-
 	// look through the actual mappings
-	m.deej.config.Values().SliderMapping.iterate(func(_ int, targets []string) {
-		for _, target := range targets {
+	for _, entry := range m.deej.config.Values().SliderMapping {
+		for _, target := range entry.Targets {
 
 			// ignore special transforms
 			if m.targetHasSpecialTransform(target) {
@@ -277,13 +275,12 @@ func (m *sessionMap) sessionMapped(session Session) bool {
 			target = m.resolveTarget(target)[0]
 
 			if target == session.Key() {
-				matchFound = true
-				return
+				return true
 			}
 		}
-	})
+	}
 
-	return matchFound
+	return false
 }
 
 func (m *sessionMap) handleSliderMoveEvent(event SliderMoveEvent) {

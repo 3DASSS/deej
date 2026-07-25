@@ -1,11 +1,12 @@
 package deej
 
 import (
-	"crypto/sha256"
+	"bytes"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -20,21 +21,10 @@ import (
 	"github.com/nik9play/deej/pkg/notify"
 )
 
-// ConfigValues holds a single immutable generation of deej's configuration.
-// A fresh instance is published atomically on every (re)load, so concurrent
-// readers must grab a snapshot with Values and must not mutate it
-type ConfigValues struct {
-	// Settings is the sanitized contents of the user config file
-	Settings
-
-	// SliderMapping is the runtime slider->targets map built from Mapping
-	SliderMapping *sliderMap
-}
-
 // CanonicalConfig provides application-wide access to configuration fields,
 // as well as loading/file watching logic for deej's configuration file
 type CanonicalConfig struct {
-	current atomic.Pointer[ConfigValues]
+	current atomic.Pointer[Settings]
 
 	logger   *zap.SugaredLogger
 	notifier notify.Notifier
@@ -47,17 +37,14 @@ type CanonicalConfig struct {
 	// serializes the read-modify-write cycles of Load and SaveUserSettings
 	lock sync.Mutex
 
-	// hash of the last config content written by the GUI, so the file
-	// watcher can tell our own writes apart from hand edits
-	lastSelfWrite atomic.Value // string
-
 	configPath string
 }
 
 // Values returns the current immutable snapshot of the configuration.
 // Callers that read multiple fields should grab one snapshot and use it
-// throughout, so all values belong to the same config generation
-func (cc *CanonicalConfig) Values() *ConfigValues {
+// throughout, so all values belong to the same config generation. The
+// returned snapshot must not be mutated
+func (cc *CanonicalConfig) Values() *Settings {
 	return cc.current.Load()
 }
 
@@ -148,8 +135,10 @@ func (cc *CanonicalConfig) loadLocked(localizer *i18n.Localizer) error {
 		return fmt.Errorf("read user config: %w", err)
 	}
 
-	// missing keys keep the defaults they were initialized with
+	// missing keys keep the defaults they were initialized with. Legacy flat
+	// com keys are applied first so an explicit com: section overrides them
 	settings := defaultSettings()
+	applyLegacyKeys(data, &settings)
 	if err := yaml.Unmarshal(data, &settings); err != nil {
 
 		// a *yaml.TypeError means the file parsed, but some values have the
@@ -181,20 +170,18 @@ func (cc *CanonicalConfig) loadLocked(localizer *i18n.Localizer) error {
 		}
 	}
 
-	settings.sanitize(cc.logger)
-
-	values := &ConfigValues{
-		Settings:      settings,
-		SliderMapping: sliderMapFromSettings(settings.Mapping),
+	if problems := settings.normalize(); len(problems) > 0 {
+		cc.logger.Warnw("Config had invalid values, replaced with defaults", "problems", problems)
 	}
-	cc.current.Store(values)
+
+	cc.current.Store(&settings)
 
 	cc.logger.Info("Loaded config successfully")
 	cc.logger.Infow("Config values",
-		"sliderMapping", values.SliderMapping,
-		"comPort", values.COM.Port,
-		"baudRate", values.COM.BaudRate,
-		"invertSliders", values.InvertSliders)
+		"sliderMapping", settings.SliderMapping,
+		"comPort", settings.COM.Port,
+		"baudRate", settings.COM.BaudRate,
+		"invertSliders", settings.InvertSliders)
 
 	return nil
 }
@@ -232,11 +219,11 @@ func (cc *CanonicalConfig) WatchConfigFileChanges(localizer *i18n.Localizer) {
 		return
 	}
 
-	// trailing-edge debounce timer, armed on every relevant event
+	// trailing-edge debounce timer, armed on every relevant event. Go 1.23+
+	// timer channels are unbuffered, so Stop/Reset never leave a stale tick
+	// behind and the usual drain dance isn't needed
 	debounce := time.NewTimer(time.Hour)
-	if !debounce.Stop() {
-		<-debounce.C
-	}
+	debounce.Stop()
 
 	for {
 		select {
@@ -253,12 +240,6 @@ func (cc *CanonicalConfig) WatchConfigFileChanges(localizer *i18n.Localizer) {
 				continue
 			}
 
-			if !debounce.Stop() {
-				select {
-				case <-debounce.C:
-				default:
-				}
-			}
 			debounce.Reset(watchDebounceDelay)
 
 		case err, ok := <-watcher.Errors:
@@ -278,20 +259,22 @@ func (cc *CanonicalConfig) WatchConfigFileChanges(localizer *i18n.Localizer) {
 }
 
 func (cc *CanonicalConfig) handleConfigFileChange(localizer *i18n.Localizer) {
-
-	// ignore events caused by a GUI save: it already loaded and applied the
-	// new config synchronously, and shows its own confirmation
-	if data, err := os.ReadFile(cc.configPath); err == nil {
-		if hash, ok := cc.lastSelfWrite.Load().(string); ok && hash == contentHash(data) {
-			cc.logger.Debug("Ignoring config file event caused by GUI save")
-			return
-		}
-	}
-
 	cc.logger.Debug("Config file modified, attempting reload")
+
+	previous := cc.current.Load()
 
 	if err := cc.Load(localizer); err != nil {
 		cc.logger.Warnw("Failed to reload config file", "error", err)
+		return
+	}
+
+	// a GUI save already loaded, applied and notified synchronously; the file
+	// event it triggers just reloads identical content. Skip the redundant
+	// toast and consumer notification whenever the config didn't actually
+	// change - this also covers a hand edit that only touched comments or
+	// whitespace
+	if previous != nil && reflect.DeepEqual(previous, cc.current.Load()) {
+		cc.logger.Debug("Config unchanged after reload, skipping notification")
 		return
 	}
 
@@ -319,10 +302,6 @@ func (cc *CanonicalConfig) StopWatchingConfigFile() {
 	close(cc.stopWatcher)
 }
 
-func contentHash(data []byte) string {
-	return fmt.Sprintf("%x", sha256.Sum256(data))
-}
-
 func (cc *CanonicalConfig) onConfigReloaded() {
 	cc.logger.Debug("Notifying consumers about configuration reload")
 
@@ -337,4 +316,93 @@ func (cc *CanonicalConfig) onConfigReloaded() {
 		default:
 		}
 	}
+}
+
+// UserSettings returns the current contents of the user config file
+func (cc *CanonicalConfig) UserSettings() Settings {
+	settings := *cc.Values()
+	settings.SliderMapping = settings.SliderMapping.clone()
+
+	return settings
+}
+
+// SaveUserSettings validates the settings, rewrites the user config file on
+// disk and applies the new config immediately. The file is fully regenerated:
+// comments, key order and unknown keys are not preserved
+func (cc *CanonicalConfig) SaveUserSettings(settings Settings, localizer *i18n.Localizer) error {
+	// normalize both canonicalizes (blank VID/PID -> defaults, mapping sorted
+	// and filtered) and reports invalid values; a GUI save must be rejected
+	// rather than silently corrected
+	if problems := settings.normalize(); len(problems) > 0 {
+		return fmt.Errorf("invalid settings: %s", strings.Join(problems, "; "))
+	}
+
+	if err := cc.saveAndReload(settings, localizer); err != nil {
+		return err
+	}
+
+	cc.onConfigReloaded()
+
+	return nil
+}
+
+func (cc *CanonicalConfig) saveAndReload(settings Settings, localizer *i18n.Localizer) error {
+	cc.lock.Lock()
+	defer cc.lock.Unlock()
+
+	var buf bytes.Buffer
+	encoder := yaml.NewEncoder(&buf)
+	encoder.SetIndent(2)
+	if err := encoder.Encode(&settings); err != nil {
+		return fmt.Errorf("marshal config for save: %w", err)
+	}
+	if err := encoder.Close(); err != nil {
+		return fmt.Errorf("marshal config for save: %w", err)
+	}
+	out := buf.Bytes()
+
+	if err := writeFileAtomic(cc.configPath, out); err != nil {
+		cc.logger.Warnw("Failed to write config file", "error", err)
+		return fmt.Errorf("write config for save: %w", err)
+	}
+
+	cc.logger.Infow("Saved user settings to config file", "path", cc.configPath)
+
+	// apply immediately instead of relying on the watcher's debounce timing
+	if err := cc.loadLocked(localizer); err != nil {
+		return fmt.Errorf("load config after save: %w", err)
+	}
+
+	return nil
+}
+
+// writeFileAtomic writes data to a temp file in the target's directory and
+// renames it over the target, so a crash mid-write can't corrupt the config.
+// The config holds the OBS websocket password, so it stays owner-only: the
+// mode comes from os.CreateTemp, which creates at 0600, and rename preserves
+// it - don't widen it
+func writeFileAtomic(path string, data []byte) error {
+	tmp, err := os.CreateTemp(filepath.Dir(path), filepath.Base(path)+".tmp-*")
+	if err != nil {
+		return err
+	}
+	tmpPath := tmp.Name()
+
+	if _, err := tmp.Write(data); err != nil {
+		_ = tmp.Close()
+		_ = os.Remove(tmpPath)
+		return err
+	}
+
+	if err := tmp.Close(); err != nil {
+		_ = os.Remove(tmpPath)
+		return err
+	}
+
+	if err := os.Rename(tmpPath, path); err != nil {
+		_ = os.Remove(tmpPath)
+		return err
+	}
+
+	return nil
 }

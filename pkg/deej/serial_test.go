@@ -10,11 +10,9 @@ import (
 // plus a buffered channel that captures emitted slider move events.
 func newTestSerialIO(invertSliders bool, noiseReductionLevel string) (*SerialIO, chan SliderMoveEvent) {
 	config := &CanonicalConfig{}
-	config.current.Store(&ConfigValues{
-		Settings: Settings{
-			InvertSliders:  invertSliders,
-			NoiseReduction: noiseReductionLevel,
-		},
+	config.current.Store(&Settings{
+		InvertSliders:  invertSliders,
+		NoiseReduction: noiseReductionLevel,
 	})
 
 	sio := &SerialIO{

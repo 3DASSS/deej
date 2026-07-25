@@ -59,15 +59,24 @@ obs:
   password: ""
 `
 
-func TestSaveUserSettingsWritesAndApplies(t *testing.T) {
+// TestSaveUserSettingsRoundTrip touches every field of Settings, so a save
+// that drops or mangles one shows up here
+func TestSaveUserSettingsRoundTrip(t *testing.T) {
 	cc := newTestConfig(t, testConfigContents)
 
 	settings := cc.UserSettings()
 	settings.COM.Port = "COM7"
+	settings.COM.BaudRate = 115200
+	settings.COM.VID = "2341"
+	settings.COM.PID = "0043"
 	settings.InvertSliders = true
 	settings.NoiseReduction = "high"
+	settings.Language = "ru"
 	settings.OBS.Enabled = true
-	settings.Mapping = SliderMappings{
+	settings.OBS.Host = "192.168.1.5"
+	settings.OBS.Port = 4456
+	settings.OBS.Password = "secret"
+	settings.SliderMapping = SliderMappings{
 		{Slider: 0, Targets: []string{"master"}},
 		{Slider: 2, Targets: []string{"discord.exe", "spotify.exe"}},
 	}
@@ -76,6 +85,7 @@ func TestSaveUserSettingsWritesAndApplies(t *testing.T) {
 		t.Fatalf("save settings: %v", err)
 	}
 
+	// the file must carry the config's own key names, not just the values
 	data, err := os.ReadFile(cc.configPath)
 	if err != nil {
 		t.Fatalf("read saved config: %v", err)
@@ -93,69 +103,39 @@ func TestSaveUserSettingsWritesAndApplies(t *testing.T) {
 		}
 	}
 
-	// the save must have applied the new values immediately
-	values := cc.Values()
-	if values.COM.Port != "COM7" {
-		t.Errorf("com port not applied, got %q", values.COM.Port)
-	}
-	if !values.InvertSliders {
-		t.Error("invert_sliders not applied")
-	}
-	if !values.OBS.Enabled {
-		t.Error("obs.enabled not applied")
-	}
-	targets, ok := values.SliderMapping.get(2)
-	if !ok || len(targets) != 2 {
-		t.Errorf("slider mapping not applied, got %v", targets)
-	}
-}
-
-func TestSaveUserSettingsRoundTrip(t *testing.T) {
-	cc := newTestConfig(t, testConfigContents)
-
-	settings := cc.UserSettings()
-	settings.COM.BaudRate = 115200
-	settings.COM.VID = "2341"
-	settings.COM.PID = "0043"
-	settings.Language = "ru"
-	settings.OBS.Host = "192.168.1.5"
-	settings.OBS.Port = 4456
-	settings.OBS.Password = "secret"
-
-	if err := cc.SaveUserSettings(settings, newTestLocalizer()); err != nil {
-		t.Fatalf("save settings: %v", err)
-	}
-
+	// every value must survive the write -> read cycle, applied immediately
 	got := cc.UserSettings()
-	if got.COM.BaudRate != 115200 || got.COM.VID != "2341" || got.COM.PID != "0043" ||
-		got.Language != "ru" || got.OBS.Host != "192.168.1.5" ||
+	if got.COM.Port != "COM7" || got.COM.BaudRate != 115200 ||
+		got.COM.VID != "2341" || got.COM.PID != "0043" ||
+		!got.InvertSliders || got.NoiseReduction != "high" || got.Language != "ru" ||
+		!got.OBS.Enabled || got.OBS.Host != "192.168.1.5" ||
 		got.OBS.Port != 4456 || got.OBS.Password != "secret" {
 		t.Errorf("round trip mismatch: %+v", got)
 	}
 
-	if len(got.Mapping) != 2 {
-		t.Fatalf("expected 2 mapping entries, got %v", got.Mapping)
+	if len(got.SliderMapping) != 2 {
+		t.Fatalf("expected 2 mapping entries, got %v", got.SliderMapping)
 	}
-	if got.Mapping[1].Slider != 1 || len(got.Mapping[1].Targets) != 2 {
-		t.Errorf("multi-target mapping mismatch: %+v", got.Mapping[1])
+	targets, ok := got.SliderMapping.get(2)
+	if !ok || len(targets) != 2 {
+		t.Errorf("multi-target mapping not applied, got %v", targets)
 	}
 }
 
 func TestSaveUserSettingsNotifiesConsumers(t *testing.T) {
 	cc := newTestConfig(t, testConfigContents)
 
+	// the channel is buffered and the save notifies synchronously, so the
+	// signal is already waiting by the time SaveUserSettings returns
 	reloaded := cc.SubscribeToChanges()
-	done := make(chan bool)
-	go func() {
-		done <- <-reloaded
-	}()
 
-	settings := cc.UserSettings()
-	if err := cc.SaveUserSettings(settings, newTestLocalizer()); err != nil {
+	if err := cc.SaveUserSettings(cc.UserSettings(), newTestLocalizer()); err != nil {
 		t.Fatalf("save settings: %v", err)
 	}
 
-	if !<-done {
+	select {
+	case <-reloaded:
+	default:
 		t.Error("expected reload notification")
 	}
 }
@@ -234,7 +214,7 @@ func TestSaveMigratesLegacyKeysToComSection(t *testing.T) {
 
 	// legacy keys live at the top level, so they'd start a line unindented
 	// (the com section's own baud_rate is indented)
-	for _, line := range strings.Split(saved, "\n") {
+	for line := range strings.SplitSeq(saved, "\n") {
 		for _, stale := range []string{"com_port:", "baud_rate:", "com_vid:", "com_pid:"} {
 			if strings.HasPrefix(line, stale) {
 				t.Errorf("saved config still contains legacy key %q:\n%s", stale, saved)
@@ -283,32 +263,38 @@ obs:
 }
 
 func TestLoadToleratesWrongValueTypes(t *testing.T) {
-	// baud_rate has a wrong type; the rest of the file must still apply
-	cc := newTestConfig(t, "com:\n  baud_rate: [what]\n  port: COM9\n")
+	// baud_rate has a wrong type and falls back to its default; the rest of
+	// the file must still apply, through the com section and the legacy keys
+	// alike (the two take separate decode paths)
+	for _, tc := range []struct {
+		name     string
+		contents string
+	}{
+		{"com section", "com:\n  baud_rate: [what]\n  port: COM9\n"},
+		{"legacy keys", "baud_rate: [what]\ncom_port: COM9\n"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			values := newTestConfig(t, tc.contents).Values()
 
-	values := cc.Values()
-	if values.COM.BaudRate != defaultSettings().COM.BaudRate {
-		t.Errorf("COM.BaudRate = %d, expected default", values.COM.BaudRate)
-	}
-	if values.COM.Port != "COM9" {
-		t.Errorf("COM.Port = %q, expected COM9", values.COM.Port)
-	}
-}
-
-func TestLoadToleratesWrongLegacyValueTypes(t *testing.T) {
-	// same, with the legacy flat keys
-	cc := newTestConfig(t, "baud_rate: [what]\ncom_port: COM9\n")
-
-	values := cc.Values()
-	if values.COM.BaudRate != defaultSettings().COM.BaudRate {
-		t.Errorf("COM.BaudRate = %d, expected default", values.COM.BaudRate)
-	}
-	if values.COM.Port != "COM9" {
-		t.Errorf("COM.Port = %q, expected COM9", values.COM.Port)
+			if values.COM.BaudRate != defaultSettings().COM.BaudRate {
+				t.Errorf("COM.BaudRate = %d, expected default", values.COM.BaudRate)
+			}
+			if values.COM.Port != "COM9" {
+				t.Errorf("COM.Port = %q, expected COM9", values.COM.Port)
+			}
+		})
 	}
 }
 
-func TestSettingsValidate(t *testing.T) {
+func TestDefaultComPortIsAuto(t *testing.T) {
+	// autodetection by VID/PID is the shipped default; a hardcoded port name
+	// would only ever be right on the machine it was picked on
+	if port := defaultSettings().COM.Port; port != "auto" {
+		t.Errorf("default com port = %q, expected auto", port)
+	}
+}
+
+func TestSettingsNormalize(t *testing.T) {
 	valid := Settings{
 		COM: COMSettings{
 			Port:     "auto",
@@ -319,21 +305,41 @@ func TestSettingsValidate(t *testing.T) {
 		NoiseReduction: "default",
 		Language:       "auto",
 		OBS:            OBSSettings{Host: "localhost", Port: 4455},
-		Mapping: SliderMappings{
+		SliderMapping: SliderMappings{
 			{Slider: 0, Targets: []string{"master"}},
 		},
 	}
 
-	if err := valid.Validate(); err != nil {
-		t.Errorf("valid settings rejected: %v", err)
+	v := valid
+	if problems := v.normalize(); len(problems) != 0 {
+		t.Errorf("valid settings reported problems: %v", problems)
 	}
 
-	// empty VID/PID mean "use the built-in default" and must be accepted
+	// empty VID/PID mean "use the built-in default": no problem, and they
+	// canonicalize to the default value
 	emptyVIDPID := valid
 	emptyVIDPID.COM.VID = ""
 	emptyVIDPID.COM.PID = ""
-	if err := emptyVIDPID.Validate(); err != nil {
-		t.Errorf("empty VID/PID rejected: %v", err)
+	if problems := emptyVIDPID.normalize(); len(problems) != 0 {
+		t.Errorf("empty VID/PID reported problems: %v", problems)
+	}
+	if emptyVIDPID.COM.VID != defaultSettings().COM.VID || emptyVIDPID.COM.PID != defaultSettings().COM.PID {
+		t.Errorf("empty VID/PID not defaulted: %q/%q", emptyVIDPID.COM.VID, emptyVIDPID.COM.PID)
+	}
+
+	// an entry whose targets are all empty is dropped, not reported: the
+	// snapshot has to match what a save writes to the file
+	emptyTargets := valid
+	emptyTargets.SliderMapping = SliderMappings{
+		{Slider: 0, Targets: []string{"master"}},
+		{Slider: 1, Targets: []string{""}},
+		{Slider: 2, Targets: nil},
+	}
+	if problems := emptyTargets.normalize(); len(problems) != 0 {
+		t.Errorf("empty targets reported problems: %v", problems)
+	}
+	if len(emptyTargets.SliderMapping) != 1 || emptyTargets.SliderMapping[0].Slider != 0 {
+		t.Errorf("target-less entries not dropped: %+v", emptyTargets.SliderMapping)
 	}
 
 	cases := []struct {
@@ -348,10 +354,10 @@ func TestSettingsValidate(t *testing.T) {
 		{"bad language", func(s *Settings) { s.Language = "de" }},
 		{"obs port too large", func(s *Settings) { s.OBS.Port = 70000 }},
 		{"negative slider", func(s *Settings) {
-			s.Mapping = SliderMappings{{Slider: -1, Targets: []string{"a"}}}
+			s.SliderMapping = SliderMappings{{Slider: -1, Targets: []string{"a"}}}
 		}},
 		{"duplicate slider", func(s *Settings) {
-			s.Mapping = SliderMappings{
+			s.SliderMapping = SliderMappings{
 				{Slider: 1, Targets: []string{"a"}},
 				{Slider: 1, Targets: []string{"b"}},
 			}
@@ -362,8 +368,8 @@ func TestSettingsValidate(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			settings := valid
 			tc.mutate(&settings)
-			if err := settings.Validate(); err == nil {
-				t.Error("expected validation error")
+			if problems := settings.normalize(); len(problems) == 0 {
+				t.Error("expected normalize to report a problem")
 			}
 		})
 	}
