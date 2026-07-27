@@ -129,6 +129,45 @@ export class OBSSettings {
 }
 
 /**
+ * Profile is one named slider layout. Only the mapping and its hotkey are
+ * per-profile; everything else (com, obs, language, ...) stays global.
+ * normalize guarantees at least one profile exists, so consumers can always
+ * resolve a mapping
+ */
+export class Profile {
+    "name": string;
+    "hotkey": string;
+    "sliderMapping": SliderMappings;
+
+    /** Creates a new Profile instance. */
+    constructor($$source: Partial<Profile> = {}) {
+        if (!("name" in $$source)) {
+            this["name"] = "";
+        }
+        if (!("hotkey" in $$source)) {
+            this["hotkey"] = "";
+        }
+        if (!("sliderMapping" in $$source)) {
+            this["sliderMapping"] = [];
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new Profile instance from a string or object.
+     */
+    static createFrom($$source: any = {}): Profile {
+        const $$createField2_0 = $$createType1;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("sliderMapping" in $$parsedSource) {
+            $$parsedSource["sliderMapping"] = $$createField2_0($$parsedSource["sliderMapping"]);
+        }
+        return new Profile($$parsedSource as Partial<Profile>);
+    }
+}
+
+/**
  * SerialPortDTO describes an available serial port
  */
 export class SerialPortDTO {
@@ -220,11 +259,12 @@ export class SessionInfoDTO {
  * Settings is the single source of truth for deej's user-facing
  * configuration. The yaml tags define the config file keys, the json tags
  * the GUI wire format: a new setting only needs a field here (plus a default
- * in defaultSettings and, if needed, a rule in Validate/sanitize) to reach
- * the file, the runtime snapshot and the settings GUI
+ * in defaultSettings and, if needed, a rule in normalize) to reach the file,
+ * the runtime snapshot and the settings GUI
  */
 export class Settings {
-    "sliderMapping": SliderMappings;
+    "activeProfile": string;
+    "profiles": Profile[];
     "invertSliders": boolean;
     "com": COMSettings;
     "noiseReduction": string;
@@ -233,8 +273,11 @@ export class Settings {
 
     /** Creates a new Settings instance. */
     constructor($$source: Partial<Settings> = {}) {
-        if (!("sliderMapping" in $$source)) {
-            this["sliderMapping"] = [];
+        if (!("activeProfile" in $$source)) {
+            this["activeProfile"] = "";
+        }
+        if (!("profiles" in $$source)) {
+            this["profiles"] = [];
         }
         if (!("invertSliders" in $$source)) {
             this["invertSliders"] = false;
@@ -259,18 +302,18 @@ export class Settings {
      * Creates a new Settings instance from a string or object.
      */
     static createFrom($$source: any = {}): Settings {
-        const $$createField0_0 = $$createType1;
-        const $$createField2_0 = $$createType4;
-        const $$createField5_0 = $$createType5;
+        const $$createField1_0 = $$createType5;
+        const $$createField3_0 = $$createType6;
+        const $$createField6_0 = $$createType7;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
-        if ("sliderMapping" in $$parsedSource) {
-            $$parsedSource["sliderMapping"] = $$createField0_0($$parsedSource["sliderMapping"]);
+        if ("profiles" in $$parsedSource) {
+            $$parsedSource["profiles"] = $$createField1_0($$parsedSource["profiles"]);
         }
         if ("com" in $$parsedSource) {
-            $$parsedSource["com"] = $$createField2_0($$parsedSource["com"]);
+            $$parsedSource["com"] = $$createField3_0($$parsedSource["com"]);
         }
         if ("obs" in $$parsedSource) {
-            $$parsedSource["obs"] = $$createField5_0($$parsedSource["obs"]);
+            $$parsedSource["obs"] = $$createField6_0($$parsedSource["obs"]);
         }
         return new Settings($$parsedSource as Partial<Settings>);
     }
@@ -345,7 +388,7 @@ export class StatusDTO {
      * Creates a new StatusDTO instance from a string or object.
      */
     static createFrom($$source: any = {}): StatusDTO {
-        const $$createField2_0 = $$createType6;
+        const $$createField2_0 = $$createType8;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("sliderValues" in $$parsedSource) {
             $$parsedSource["sliderValues"] = $$createField2_0($$parsedSource["sliderValues"]);
@@ -364,6 +407,8 @@ var $$createType1 = (function $$initCreateType1(...args: any[]): any {
 });
 const $$createType2 = SliderMappingEntry.createFrom;
 const $$createType3 = $Create.Array($$createType2);
-const $$createType4 = COMSettings.createFrom;
-const $$createType5 = OBSSettings.createFrom;
-const $$createType6 = $Create.Array($Create.Any);
+const $$createType4 = Profile.createFrom;
+const $$createType5 = $Create.Array($$createType4);
+const $$createType6 = COMSettings.createFrom;
+const $$createType7 = OBSSettings.createFrom;
+const $$createType8 = $Create.Array($Create.Any);

@@ -1,5 +1,6 @@
 <script lang="ts">
   import { app } from "../lib/state.svelte";
+  import { activeMapping } from "../lib/profiles";
   import { m } from "../paraglide/messages";
   import SliderColumn from "./SliderColumn.svelte";
 
@@ -17,7 +18,7 @@
   }
 
   const columns = $derived.by(() => {
-    const mapping = app.settings?.sliderMapping ?? [];
+    const mapping = activeMapping(app.settings);
     const maxMapped = mapping.reduce((max, entry) => Math.max(max, entry.slider + 1), 0);
     const count = Math.max(app.values.length, maxMapped, 1);
 

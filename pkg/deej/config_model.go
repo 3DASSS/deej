@@ -17,12 +17,72 @@ import (
 // in defaultSettings and, if needed, a rule in normalize) to reach the file,
 // the runtime snapshot and the settings GUI
 type Settings struct {
-	SliderMapping  SliderMappings `yaml:"slider_mapping" json:"sliderMapping"`
-	InvertSliders  bool           `yaml:"invert_sliders" json:"invertSliders"`
-	COM            COMSettings    `yaml:"com" json:"com"`
-	NoiseReduction string         `yaml:"noise_reduction,omitempty" json:"noiseReduction"`
-	Language       string         `yaml:"language" json:"language"`
-	OBS            OBSSettings    `yaml:"obs" json:"obs"`
+	ActiveProfile  string      `yaml:"active_profile" json:"activeProfile"`
+	Profiles       []Profile   `yaml:"profiles" json:"profiles"`
+	InvertSliders  bool        `yaml:"invert_sliders" json:"invertSliders"`
+	COM            COMSettings `yaml:"com" json:"com"`
+	NoiseReduction string      `yaml:"noise_reduction,omitempty" json:"noiseReduction"`
+	Language       string      `yaml:"language" json:"language"`
+	OBS            OBSSettings `yaml:"obs" json:"obs"`
+}
+
+// defaultProfileName is the profile a config without any gets, and the one a
+// legacy top-level slider_mapping is migrated into
+const defaultProfileName = "default"
+
+// Profile is one named slider layout. Only the mapping and its hotkey are
+// per-profile; everything else (com, obs, language, ...) stays global.
+// normalize guarantees at least one profile exists, so consumers can always
+// resolve a mapping
+type Profile struct {
+	Name          string         `yaml:"name" json:"name"`
+	Hotkey        string         `yaml:"hotkey,omitempty" json:"hotkey"`
+	SliderMapping SliderMappings `yaml:"slider_mapping" json:"sliderMapping"`
+}
+
+// ActiveMapping returns the slider mapping deej is currently driving. It's the
+// only mapping lookup on the hot path, so it stays a plain scan over the (very
+// short) profile list
+func (s *Settings) ActiveMapping() SliderMappings {
+	for i := range s.Profiles {
+		if s.Profiles[i].Name == s.ActiveProfile {
+			return s.Profiles[i].SliderMapping
+		}
+	}
+
+	// normalized settings always resolve above; fall back to the first profile
+	// so an unnormalized snapshot still does something sensible
+	if len(s.Profiles) > 0 {
+		return s.Profiles[0].SliderMapping
+	}
+
+	return nil
+}
+
+// clone returns a deep copy, safe to hand out and mutate without touching the
+// live snapshot
+func (s Settings) clone() Settings {
+	out := s
+
+	out.Profiles = make([]Profile, len(s.Profiles))
+	for i, profile := range s.Profiles {
+		profile.SliderMapping = profile.SliderMapping.clone()
+		out.Profiles[i] = profile
+	}
+
+	return out
+}
+
+// findProfileName resolves a profile name case-insensitively, returning it in
+// the spelling the profile actually uses
+func findProfileName(profiles []Profile, name string) (string, bool) {
+	for _, profile := range profiles {
+		if strings.EqualFold(profile.Name, name) {
+			return profile.Name, true
+		}
+	}
+
+	return "", false
 }
 
 // COMSettings describes the Arduino serial connection parameters
@@ -33,16 +93,18 @@ type COMSettings struct {
 	PID      HexWord `yaml:"pid" json:"pid"`
 }
 
-// applyLegacyKeys fills COM settings from the legacy flat keys (com_port,
-// baud_rate, com_vid, com_pid) that older config files used. Loads call it
-// before the main decode, so an explicit com: section overrides these. Saves
-// only ever write the com: section, so this is read-only compatibility
+// applyLegacyKeys fills settings from the flat keys older config files used:
+// the com ones (com_port, baud_rate, com_vid, com_pid) and the top-level
+// slider_mapping that predates profiles. Loads call it before the main decode,
+// so an explicit com:/profiles: section overrides these. Saves only ever write
+// the new form, so this is read-only compatibility
 func applyLegacyKeys(data []byte, s *Settings) {
 	var legacy struct {
-		Port     *string  `yaml:"com_port"`
-		BaudRate *int     `yaml:"baud_rate"`
-		VID      *HexWord `yaml:"com_vid"`
-		PID      *HexWord `yaml:"com_pid"`
+		Port          *string         `yaml:"com_port"`
+		BaudRate      *int            `yaml:"baud_rate"`
+		VID           *HexWord        `yaml:"com_vid"`
+		PID           *HexWord        `yaml:"com_pid"`
+		SliderMapping *SliderMappings `yaml:"slider_mapping"`
 	}
 
 	// a type error still decodes the well-typed keys; only a structural parse
@@ -63,6 +125,13 @@ func applyLegacyKeys(data []byte, s *Settings) {
 	if legacy.PID != nil {
 		s.COM.PID = *legacy.PID
 	}
+
+	// a pre-profiles config: read the single mapping as the default profile.
+	// yaml replaces a slice wholesale, so a profiles: section in the same file
+	// still wins when the main decode runs
+	if legacy.SliderMapping != nil {
+		s.Profiles = []Profile{{Name: defaultProfileName, SliderMapping: *legacy.SliderMapping}}
+	}
 }
 
 func isYAMLTypeError(err error) bool {
@@ -80,8 +149,11 @@ type OBSSettings struct {
 
 func defaultSettings() Settings {
 	return Settings{
-		SliderMapping: SliderMappings{},
-		Language:      "auto",
+		// the active profile is left to normalize, which resolves an empty
+		// value to the first profile - so a config that only has profiles:
+		// (and no active_profile:) isn't reported as pointing at a missing one
+		Profiles: []Profile{{Name: defaultProfileName, SliderMapping: SliderMappings{}}},
+		Language: "auto",
 
 		COM: COMSettings{
 			Port:     "auto",
@@ -158,33 +230,107 @@ func (s *Settings) normalize() []string {
 		s.OBS.Host = defaults.OBS.Host
 	}
 
-	// canonicalize the mapping: report and drop negative/duplicate sliders,
-	// silently drop empty targets (and entries left with none, so the snapshot
-	// matches what a save writes), keep it sorted by slider index
-	mapping := SliderMappings{}
-	seenSliders := map[int]bool{}
-	for _, entry := range s.SliderMapping {
-		if entry.Slider < 0 {
-			problems = append(problems, fmt.Sprintf("slider index must not be negative: %d", entry.Slider))
-			continue
-		}
-		if seenSliders[entry.Slider] {
-			problems = append(problems, fmt.Sprintf("duplicate slider index: %d", entry.Slider))
-			continue
-		}
-		seenSliders[entry.Slider] = true
-
-		targets := slices.DeleteFunc(slices.Clone(entry.Targets), func(t string) bool { return t == "" })
-		if len(targets) == 0 {
-			continue
-		}
-
-		mapping = append(mapping, SliderMappingEntry{Slider: entry.Slider, Targets: targets})
-	}
-	slices.SortFunc(mapping, func(a, b SliderMappingEntry) int { return cmp.Compare(a.Slider, b.Slider) })
-	s.SliderMapping = mapping
+	problems = append(problems, s.normalizeProfiles()...)
 
 	return problems
+}
+
+// normalizeProfiles canonicalizes the profile list and the active profile.
+// There is always at least one profile afterwards, and ActiveProfile always
+// names one of them
+func (s *Settings) normalizeProfiles() []string {
+	var problems []string
+
+	profiles := make([]Profile, 0, len(s.Profiles))
+	seenNames := map[string]bool{}
+	seenHotkeys := map[string]bool{}
+
+	for i, profile := range s.Profiles {
+		profile.Name = strings.TrimSpace(profile.Name)
+		if profile.Name == "" {
+			generated := fmt.Sprintf("profile %d", i+1)
+			problems = append(problems, fmt.Sprintf("profile %d has no name, using %q", i+1, generated))
+			profile.Name = generated
+		}
+
+		if seenNames[strings.ToLower(profile.Name)] {
+			problems = append(problems, fmt.Sprintf("duplicate profile name: %q", profile.Name))
+			continue
+		}
+		seenNames[strings.ToLower(profile.Name)] = true
+
+		profile.Hotkey = strings.TrimSpace(profile.Hotkey)
+		if profile.Hotkey != "" {
+			switch {
+			case !validHotkey(profile.Hotkey):
+				problems = append(problems, fmt.Sprintf("invalid hotkey for profile %q: %q", profile.Name, profile.Hotkey))
+				profile.Hotkey = ""
+
+			// the OS would reject the second registration anyway; dropping it
+			// here keeps the file honest about what's actually bound
+			case seenHotkeys[strings.ToLower(profile.Hotkey)]:
+				problems = append(problems, fmt.Sprintf("duplicate hotkey %q on profile %q", profile.Hotkey, profile.Name))
+				profile.Hotkey = ""
+
+			default:
+				seenHotkeys[strings.ToLower(profile.Hotkey)] = true
+			}
+		}
+
+		mapping, mappingProblems := profile.SliderMapping.normalized()
+		for _, problem := range mappingProblems {
+			problems = append(problems, fmt.Sprintf("profile %q: %s", profile.Name, problem))
+		}
+		profile.SliderMapping = mapping
+
+		profiles = append(profiles, profile)
+	}
+
+	// a config with no profiles at all (or one whose every profile was dropped
+	// as a duplicate) gets an empty default, so consumers never see none
+	if len(profiles) == 0 {
+		profiles = append(profiles, Profile{Name: defaultProfileName, SliderMapping: SliderMappings{}})
+	}
+	s.Profiles = profiles
+
+	s.ActiveProfile = strings.TrimSpace(s.ActiveProfile)
+	if resolved, ok := findProfileName(profiles, s.ActiveProfile); ok {
+		s.ActiveProfile = resolved
+	} else {
+		// an empty value just means "no preference", only a name that doesn't
+		// resolve is worth reporting
+		if s.ActiveProfile != "" {
+			problems = append(problems, fmt.Sprintf("unknown active profile: %q", s.ActiveProfile))
+		}
+		s.ActiveProfile = profiles[0].Name
+	}
+
+	return problems
+}
+
+// validHotkeyModifiers mirrors the modifiers wails accepts in an accelerator
+// (see application.modifierMap). The key itself is left to wails to validate,
+// which reports an unsupported one when it registers the shortcut
+var validHotkeyModifiers = []string{
+	"cmdorctrl", "cmd", "command", "ctrl", "optionoralt", "alt", "option", "shift", "super",
+}
+
+// validHotkey reports whether a profile hotkey looks like a wails accelerator
+// with at least one modifier. The modifier is not optional: a bare key would
+// be grabbed system-wide, so deej would swallow it in every other application
+func validHotkey(hotkey string) bool {
+	components := strings.Split(hotkey, "+")
+	if len(components) < 2 {
+		return false
+	}
+
+	for _, modifier := range components[:len(components)-1] {
+		if !slices.Contains(validHotkeyModifiers, strings.ToLower(strings.TrimSpace(modifier))) {
+			return false
+		}
+	}
+
+	return strings.TrimSpace(components[len(components)-1]) != ""
 }
 
 // HexWord is a 16-bit value carried as a hex string (e.g. "1A86"), the form
@@ -327,6 +473,41 @@ func (sm SliderMappings) MarshalYAML() (any, error) {
 	}
 
 	return mapping, nil
+}
+
+// normalized returns the canonical form of a mapping and the list of values
+// that were invalid: negative and duplicate slider indexes are reported and
+// dropped, empty targets (and entries left with none, so the snapshot matches
+// what a save writes) are dropped silently, and the result is sorted by
+// slider index
+func (sm SliderMappings) normalized() (SliderMappings, []string) {
+	var problems []string
+
+	mapping := SliderMappings{}
+	seenSliders := map[int]bool{}
+
+	for _, entry := range sm {
+		if entry.Slider < 0 {
+			problems = append(problems, fmt.Sprintf("slider index must not be negative: %d", entry.Slider))
+			continue
+		}
+		if seenSliders[entry.Slider] {
+			problems = append(problems, fmt.Sprintf("duplicate slider index: %d", entry.Slider))
+			continue
+		}
+		seenSliders[entry.Slider] = true
+
+		targets := slices.DeleteFunc(slices.Clone(entry.Targets), func(t string) bool { return t == "" })
+		if len(targets) == 0 {
+			continue
+		}
+
+		mapping = append(mapping, SliderMappingEntry{Slider: entry.Slider, Targets: targets})
+	}
+
+	slices.SortFunc(mapping, func(a, b SliderMappingEntry) int { return cmp.Compare(a.Slider, b.Slider) })
+
+	return mapping, problems
 }
 
 // get returns the targets mapped to a slider index. The mapping is small

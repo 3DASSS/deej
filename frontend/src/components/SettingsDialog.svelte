@@ -7,6 +7,7 @@
   import Cable from "@lucide/svelte/icons/cable";
   import Cog from "@lucide/svelte/icons/cog";
   import Info from "@lucide/svelte/icons/info";
+  import Layers from "@lucide/svelte/icons/layers";
   import SlidersHorizontal from "@lucide/svelte/icons/sliders-horizontal";
   import Video from "@lucide/svelte/icons/video";
   import {
@@ -23,6 +24,7 @@
   import BehaviorSection from "./BehaviorSection.svelte";
   import GeneralSection from "./GeneralSection.svelte";
   import ObsSection from "./ObsSection.svelte";
+  import ProfilesSection from "./ProfilesSection.svelte";
 
   let tab = $state("general");
 
@@ -59,6 +61,7 @@
 
   const tabItems = $derived([
     { value: "general", label: m.general(), Icon: Cog, dirty: false },
+    { value: "profiles", label: m.profiles(), Icon: Layers, dirty: false },
     { value: "connection", label: m.connection(), Icon: Cable, dirty: comDirty },
     { value: "behavior", label: m.behavior(), Icon: SlidersHorizontal, dirty: false },
     { value: "obs", label: m.obs(), Icon: Video, dirty: obsDirty },
@@ -155,6 +158,9 @@
           <div class="min-h-0  flex-1 overflow-y-auto p-4">
             <Tabs.Content value="general">
               <GeneralSection {settings} {appInfo} onsave={save} />
+            </Tabs.Content>
+            <Tabs.Content value="profiles">
+              <ProfilesSection {settings} onsave={save} />
             </Tabs.Content>
             <Tabs.Content value="connection">
               <ConnectionSection

@@ -10,6 +10,7 @@
   import X from "@lucide/svelte/icons/x";
   import { AppInfoDTO, Settings, SettingsService } from "../../bindings/github.com/nik9play/deej/pkg/deej";
   import { app, refreshSessions } from "../lib/state.svelte";
+  import { activeMapping, activeProfile } from "../lib/profiles";
   import { m } from "../paraglide/messages";
   import { OBS_PREFIX, prettifyProcessName, specialTargetDescription, specialTargetLabel, targetLabel } from "../lib/targets";
 
@@ -53,7 +54,7 @@
   // take a fresh copy of the slider's targets every time the dialog opens
   $effect(() => {
     if (open) {
-      targets = [...(app.settings?.sliderMapping.find((entry) => entry.slider === slider)?.targets ?? [])];
+      targets = [...(activeMapping(app.settings).find((entry) => entry.slider === slider)?.targets ?? [])];
       tab = "apps";
       appSearch = "";
       deviceSearch = "";
@@ -207,10 +208,13 @@
     errorText = "";
     try {
       const dto: Settings = $state.snapshot(app.settings);
-      dto.sliderMapping = dto.sliderMapping.filter((entry) => entry.slider !== slider);
+      // targets belong to the active profile; the others are left alone
+      const profile = activeProfile(dto);
+      if (!profile) return;
+      profile.sliderMapping = profile.sliderMapping.filter((entry) => entry.slider !== slider);
       if (targets.length > 0) {
-        dto.sliderMapping.push({ slider, targets: [...targets] });
-        dto.sliderMapping.sort((a, b) => a.slider - b.slider);
+        profile.sliderMapping.push({ slider, targets: [...targets] });
+        profile.sliderMapping.sort((a, b) => a.slider - b.slider);
       }
       await SettingsService.SaveSettings(dto);
       // local state refreshes via the deej:config event round-trip

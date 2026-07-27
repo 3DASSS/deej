@@ -71,6 +71,12 @@ func (s *SettingsService) SaveSettings(settings Settings) error {
 	return s.d.config.SaveUserSettings(settings, s.d.localizer)
 }
 
+// SetActiveProfile switches to the named profile. It's a targeted write, so a
+// switch can't clobber a hand edit that landed since the window was opened
+func (s *SettingsService) SetActiveProfile(name string) error {
+	return s.d.config.SetActiveProfile(name, s.d.localizer)
+}
+
 // GetAppInfo returns version and localization info along with the list of
 // special slider targets deej supports
 func (s *SettingsService) GetAppInfo() AppInfoDTO {

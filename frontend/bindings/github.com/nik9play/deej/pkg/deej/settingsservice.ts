@@ -108,6 +108,14 @@ export function SaveSettings(settings: $models.Settings): $CancellablePromise<vo
 }
 
 /**
+ * SetActiveProfile switches to the named profile. It's a targeted write, so a
+ * switch can't clobber a hand edit that landed since the window was opened
+ */
+export function SetActiveProfile(name: string): $CancellablePromise<void> {
+    return $Call.ByID(1627894027, name);
+}
+
+/**
  * SetAutostart enables or disables running deej at system startup, applying
  * the change immediately
  */

@@ -10,6 +10,7 @@ export {
     AppInfoDTO,
     COMSettings,
     OBSSettings,
+    Profile,
     SerialPortDTO,
     SessionInfoDTO,
     Settings,

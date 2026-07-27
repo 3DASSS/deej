@@ -178,7 +178,9 @@ func (cc *CanonicalConfig) loadLocked(localizer *i18n.Localizer) error {
 
 	cc.logger.Info("Loaded config successfully")
 	cc.logger.Infow("Config values",
-		"sliderMapping", settings.SliderMapping,
+		"activeProfile", settings.ActiveProfile,
+		"profiles", len(settings.Profiles),
+		"sliderMapping", settings.ActiveMapping(),
 		"comPort", settings.COM.Port,
 		"baudRate", settings.COM.BaudRate,
 		"invertSliders", settings.InvertSliders)
@@ -320,10 +322,36 @@ func (cc *CanonicalConfig) onConfigReloaded() {
 
 // UserSettings returns the current contents of the user config file
 func (cc *CanonicalConfig) UserSettings() Settings {
-	settings := *cc.Values()
-	settings.SliderMapping = settings.SliderMapping.clone()
+	return cc.Values().clone()
+}
 
-	return settings
+// SetActiveProfile switches to the named profile and persists the choice, so
+// it survives a restart. It's the one-field write behind the profile hotkeys,
+// the tray menu and the titlebar dropdown; everything else goes through
+// SaveUserSettings
+func (cc *CanonicalConfig) SetActiveProfile(name string, localizer *i18n.Localizer) error {
+	settings := cc.Values().clone()
+
+	resolved, ok := findProfileName(settings.Profiles, name)
+	if !ok {
+		return fmt.Errorf("unknown profile: %q", name)
+	}
+
+	// a hotkey can be pressed repeatedly; don't rewrite the config file (and
+	// wake every consumer) when nothing would change
+	if settings.ActiveProfile == resolved {
+		return nil
+	}
+
+	settings.ActiveProfile = resolved
+
+	if err := cc.saveAndReload(settings, localizer); err != nil {
+		return err
+	}
+
+	cc.onConfigReloaded()
+
+	return nil
 }
 
 // SaveUserSettings validates the settings, rewrites the user config file on

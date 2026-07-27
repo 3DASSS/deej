@@ -76,10 +76,16 @@ func TestSaveUserSettingsRoundTrip(t *testing.T) {
 	settings.OBS.Host = "192.168.1.5"
 	settings.OBS.Port = 4456
 	settings.OBS.Password = "secret"
-	settings.SliderMapping = SliderMappings{
-		{Slider: 0, Targets: []string{"master"}},
-		{Slider: 2, Targets: []string{"discord.exe", "spotify.exe"}},
+	settings.Profiles = []Profile{
+		{Name: "default", SliderMapping: SliderMappings{
+			{Slider: 0, Targets: []string{"master"}},
+			{Slider: 2, Targets: []string{"discord.exe", "spotify.exe"}},
+		}},
+		{Name: "gaming", Hotkey: "Ctrl+Alt+2", SliderMapping: SliderMappings{
+			{Slider: 0, Targets: []string{"game.exe"}},
+		}},
 	}
+	settings.ActiveProfile = "default"
 
 	if err := cc.SaveUserSettings(settings, newTestLocalizer()); err != nil {
 		t.Fatalf("save settings: %v", err)
@@ -97,6 +103,9 @@ func TestSaveUserSettingsRoundTrip(t *testing.T) {
 		"invert_sliders: true",
 		"noise_reduction: high",
 		"discord.exe",
+		"active_profile: default",
+		"name: gaming",
+		"hotkey: Ctrl+Alt+2",
 	} {
 		if !strings.Contains(saved, want) {
 			t.Errorf("saved config missing %q:\n%s", want, saved)
@@ -113,12 +122,139 @@ func TestSaveUserSettingsRoundTrip(t *testing.T) {
 		t.Errorf("round trip mismatch: %+v", got)
 	}
 
-	if len(got.SliderMapping) != 2 {
-		t.Fatalf("expected 2 mapping entries, got %v", got.SliderMapping)
+	if len(got.Profiles) != 2 || got.Profiles[1].Name != "gaming" || got.Profiles[1].Hotkey != "Ctrl+Alt+2" {
+		t.Fatalf("profiles did not survive the round trip: %+v", got.Profiles)
 	}
-	targets, ok := got.SliderMapping.get(2)
+
+	if len(got.ActiveMapping()) != 2 {
+		t.Fatalf("expected 2 mapping entries, got %v", got.ActiveMapping())
+	}
+	targets, ok := got.ActiveMapping().get(2)
 	if !ok || len(targets) != 2 {
 		t.Errorf("multi-target mapping not applied, got %v", targets)
+	}
+}
+
+func TestLoadReadsLegacySliderMapping(t *testing.T) {
+	// a pre-profiles config: the top-level mapping becomes the default profile
+	cc := newTestConfig(t, testConfigContents)
+
+	values := cc.Values()
+	if len(values.Profiles) != 1 || values.Profiles[0].Name != defaultProfileName {
+		t.Fatalf("expected a single %q profile, got %+v", defaultProfileName, values.Profiles)
+	}
+	if values.ActiveProfile != defaultProfileName {
+		t.Errorf("ActiveProfile = %q, expected %q", values.ActiveProfile, defaultProfileName)
+	}
+
+	targets, ok := values.ActiveMapping().get(1)
+	if !ok || len(targets) != 2 {
+		t.Errorf("legacy mapping not migrated, got %v", targets)
+	}
+}
+
+func TestProfilesWinOverLegacySliderMapping(t *testing.T) {
+	cc := newTestConfig(t, `
+slider_mapping:
+  0: master
+profiles:
+  - name: gaming
+    slider_mapping:
+      0: game.exe
+  - name: music
+    slider_mapping:
+      0: spotify.exe
+`)
+
+	values := cc.Values()
+	if len(values.Profiles) != 2 {
+		t.Fatalf("expected the profiles section to replace the legacy mapping, got %+v", values.Profiles)
+	}
+
+	// no active_profile in the file: the first profile wins, silently
+	if values.ActiveProfile != "gaming" {
+		t.Errorf("ActiveProfile = %q, expected gaming", values.ActiveProfile)
+	}
+	if targets, _ := values.ActiveMapping().get(0); len(targets) != 1 || targets[0] != "game.exe" {
+		t.Errorf("active mapping = %v, expected game.exe", targets)
+	}
+}
+
+func TestSaveMigratesSliderMappingToProfiles(t *testing.T) {
+	cc := newTestConfig(t, testConfigContents)
+
+	if err := cc.SaveUserSettings(cc.UserSettings(), newTestLocalizer()); err != nil {
+		t.Fatalf("save settings: %v", err)
+	}
+
+	data, err := os.ReadFile(cc.configPath)
+	if err != nil {
+		t.Fatalf("read saved config: %v", err)
+	}
+	saved := string(data)
+
+	// the legacy key lives at the top level, so it would start a line
+	// unindented (a profile's own slider_mapping is indented)
+	for line := range strings.SplitSeq(saved, "\n") {
+		if strings.HasPrefix(line, "slider_mapping:") {
+			t.Errorf("saved config still contains the legacy top-level mapping:\n%s", saved)
+		}
+	}
+	if !strings.Contains(saved, "profiles:") || !strings.Contains(saved, "name: default") {
+		t.Errorf("saved config missing the migrated profile:\n%s", saved)
+	}
+}
+
+func TestSetActiveProfile(t *testing.T) {
+	cc := newTestConfig(t, `
+active_profile: default
+profiles:
+  - name: default
+    slider_mapping:
+      0: master
+  - name: gaming
+    slider_mapping:
+      0: game.exe
+`)
+
+	if err := cc.SetActiveProfile("unknown", newTestLocalizer()); err == nil {
+		t.Error("expected an error for an unknown profile")
+	}
+
+	reloaded := cc.SubscribeToChanges()
+
+	// resolves case-insensitively, and stores the profile's own spelling
+	if err := cc.SetActiveProfile("GAMING", newTestLocalizer()); err != nil {
+		t.Fatalf("set active profile: %v", err)
+	}
+	if cc.Values().ActiveProfile != "gaming" {
+		t.Errorf("ActiveProfile = %q, expected gaming", cc.Values().ActiveProfile)
+	}
+	if targets, _ := cc.Values().ActiveMapping().get(0); len(targets) != 1 || targets[0] != "game.exe" {
+		t.Errorf("active mapping = %v, expected game.exe", targets)
+	}
+
+	select {
+	case <-reloaded:
+	default:
+		t.Error("expected a reload notification")
+	}
+
+	// a hotkey can be pressed repeatedly: switching to the active profile must
+	// not rewrite the file
+	before, err := os.Stat(cc.configPath)
+	if err != nil {
+		t.Fatalf("stat config: %v", err)
+	}
+	if err := cc.SetActiveProfile("gaming", newTestLocalizer()); err != nil {
+		t.Fatalf("re-set active profile: %v", err)
+	}
+	after, err := os.Stat(cc.configPath)
+	if err != nil {
+		t.Fatalf("stat config: %v", err)
+	}
+	if !before.ModTime().Equal(after.ModTime()) {
+		t.Error("switching to the already-active profile rewrote the config file")
 	}
 }
 
@@ -305,8 +441,11 @@ func TestSettingsNormalize(t *testing.T) {
 		NoiseReduction: "default",
 		Language:       "auto",
 		OBS:            OBSSettings{Host: "localhost", Port: 4455},
-		SliderMapping: SliderMappings{
-			{Slider: 0, Targets: []string{"master"}},
+		ActiveProfile:  "default",
+		Profiles: []Profile{
+			{Name: "default", Hotkey: "Ctrl+Alt+1", SliderMapping: SliderMappings{
+				{Slider: 0, Targets: []string{"master"}},
+			}},
 		},
 	}
 
@@ -330,16 +469,27 @@ func TestSettingsNormalize(t *testing.T) {
 	// an entry whose targets are all empty is dropped, not reported: the
 	// snapshot has to match what a save writes to the file
 	emptyTargets := valid
-	emptyTargets.SliderMapping = SliderMappings{
+	emptyTargets.Profiles = []Profile{{Name: "default", SliderMapping: SliderMappings{
 		{Slider: 0, Targets: []string{"master"}},
 		{Slider: 1, Targets: []string{""}},
 		{Slider: 2, Targets: nil},
-	}
+	}}}
 	if problems := emptyTargets.normalize(); len(problems) != 0 {
 		t.Errorf("empty targets reported problems: %v", problems)
 	}
-	if len(emptyTargets.SliderMapping) != 1 || emptyTargets.SliderMapping[0].Slider != 0 {
-		t.Errorf("target-less entries not dropped: %+v", emptyTargets.SliderMapping)
+	if mapping := emptyTargets.ActiveMapping(); len(mapping) != 1 || mapping[0].Slider != 0 {
+		t.Errorf("target-less entries not dropped: %+v", mapping)
+	}
+
+	// a config with no profiles at all gets an empty default, silently
+	noProfiles := valid
+	noProfiles.Profiles = nil
+	noProfiles.ActiveProfile = ""
+	if problems := noProfiles.normalize(); len(problems) != 0 {
+		t.Errorf("missing profiles reported problems: %v", problems)
+	}
+	if len(noProfiles.Profiles) != 1 || noProfiles.ActiveProfile != defaultProfileName {
+		t.Errorf("missing profiles not defaulted: %+v", noProfiles)
 	}
 
 	cases := []struct {
@@ -354,12 +504,34 @@ func TestSettingsNormalize(t *testing.T) {
 		{"bad language", func(s *Settings) { s.Language = "de" }},
 		{"obs port too large", func(s *Settings) { s.OBS.Port = 70000 }},
 		{"negative slider", func(s *Settings) {
-			s.SliderMapping = SliderMappings{{Slider: -1, Targets: []string{"a"}}}
+			s.Profiles = []Profile{{Name: "default", SliderMapping: SliderMappings{
+				{Slider: -1, Targets: []string{"a"}},
+			}}}
 		}},
 		{"duplicate slider", func(s *Settings) {
-			s.SliderMapping = SliderMappings{
+			s.Profiles = []Profile{{Name: "default", SliderMapping: SliderMappings{
 				{Slider: 1, Targets: []string{"a"}},
 				{Slider: 1, Targets: []string{"b"}},
+			}}}
+		}},
+		{"unnamed profile", func(s *Settings) {
+			s.Profiles = []Profile{{Name: " "}}
+			s.ActiveProfile = ""
+		}},
+		{"duplicate profile name", func(s *Settings) {
+			s.Profiles = []Profile{{Name: "default"}, {Name: "DEFAULT"}}
+		}},
+		{"unknown active profile", func(s *Settings) { s.ActiveProfile = "gaming" }},
+		{"hotkey without a modifier", func(s *Settings) {
+			s.Profiles = []Profile{{Name: "default", Hotkey: "a"}}
+		}},
+		{"hotkey with an unknown modifier", func(s *Settings) {
+			s.Profiles = []Profile{{Name: "default", Hotkey: "Hyper+F5"}}
+		}},
+		{"duplicate hotkey", func(s *Settings) {
+			s.Profiles = []Profile{
+				{Name: "default", Hotkey: "Ctrl+Alt+1"},
+				{Name: "gaming", Hotkey: "ctrl+alt+1"},
 			}
 		}},
 	}

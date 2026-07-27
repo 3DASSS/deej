@@ -263,7 +263,7 @@ func (m *sessionMap) sessionMapped(session Session) bool {
 	}
 
 	// look through the actual mappings
-	for _, entry := range m.deej.config.Values().SliderMapping {
+	for _, entry := range m.deej.config.Values().ActiveMapping() {
 		for _, target := range entry.Targets {
 
 			// ignore special transforms
@@ -285,8 +285,8 @@ func (m *sessionMap) sessionMapped(session Session) bool {
 
 func (m *sessionMap) handleSliderMoveEvent(event SliderMoveEvent) {
 
-	// get the targets mapped to this slider from the config
-	targets, ok := m.deej.config.Values().SliderMapping.get(event.SliderID)
+	// get the targets mapped to this slider from the active profile
+	targets, ok := m.deej.config.Values().ActiveMapping().get(event.SliderID)
 
 	// if slider not found in config, silently ignore
 	if !ok {

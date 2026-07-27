@@ -5,6 +5,7 @@ package deej
 import (
 	"io/fs"
 	"log/slog"
+	"maps"
 	"strconv"
 	"strings"
 	"sync"
@@ -104,6 +105,43 @@ func getAutostartItemText(d *Deej) (string, string) {
 	})
 
 	return configTitle, configDescription
+}
+
+func getProfilesItemText(d *Deej) (string, string) {
+	profilesTitle := d.localizer.MustLocalize(&i18n.LocalizeConfig{
+		DefaultMessage: &i18n.Message{
+			ID:    "ProfilesTitle",
+			Other: "Profiles",
+		},
+	})
+	profilesDescription := d.localizer.MustLocalize(&i18n.LocalizeConfig{
+		DefaultMessage: &i18n.Message{
+			ID:    "ProfilesDescription",
+			Other: "Switch the active slider mapping",
+		},
+	})
+
+	return profilesTitle, profilesDescription
+}
+
+func getProfileSwitchedText(d *Deej, name string) (string, string) {
+	switchedTitle := d.localizer.MustLocalize(&i18n.LocalizeConfig{
+		DefaultMessage: &i18n.Message{
+			ID:    "ProfileSwitchedTitle",
+			Other: "Profile switched",
+		},
+	})
+	switchedDescription := d.localizer.MustLocalize(&i18n.LocalizeConfig{
+		DefaultMessage: &i18n.Message{
+			ID:    "ProfileSwitchedDescription",
+			Other: "{{.Profile}} is now active.",
+		},
+		TemplateData: map[string]string{
+			"Profile": name,
+		},
+	})
+
+	return switchedTitle, switchedDescription
 }
 
 func getQuitItemText(d *Deej) (string, string) {
@@ -243,6 +281,91 @@ func (d *Deej) initializeTray(onDone func()) {
 		})
 	}
 
+	profilesTitle, _ := getProfilesItemText(d)
+	profilesMenu := menu.AddSubmenu(profilesTitle)
+
+	// the profile list follows the config, so the submenu is rebuilt from
+	// scratch on every reload. Menu mutations must run on the wails main thread
+	rebuildProfilesMenu := func() {
+		settings := d.config.Values()
+
+		profilesMenu.Clear()
+		for _, profile := range settings.Profiles {
+			name := profile.Name
+
+			// a tab right-aligns what follows it in a win32 menu, which is how
+			// native menus lay their shortcuts out. SetAccelerator would do the
+			// same, but it also reorders the modifiers and binds the shortcut a
+			// second time whenever a window has focus. On the linux tray the tab
+			// is just whitespace
+			label := name
+			if profile.Hotkey != "" {
+				label += "\t" + profile.Hotkey
+			}
+
+			profilesMenu.AddRadio(label, name == settings.ActiveProfile).OnClick(func(*application.Context) {
+				logger.Infow("Profile menu item clicked, switching profile", "profile", name)
+
+				if err := d.config.SetActiveProfile(name, d.localizer); err != nil {
+					logger.Warnw("Failed to switch profile", "profile", name, "error", err)
+				}
+			})
+		}
+
+		// the tray builds a native menu out of the item tree when it's handed
+		// one, so rebuilding the tree isn't enough - the menu has to be set
+		// again. SetMenu hops to the main thread itself, so this must not run
+		// on it (InvokeSync from the main thread would deadlock)
+		tray.SetMenu(menu)
+	}
+	rebuildProfilesMenu()
+
+	// accelerator -> profile name, as last handed to the OS. Registering before
+	// Run is supported: wails defers the actual binding to application startup
+	profileHotkeys := map[string]string{}
+
+	syncProfileHotkeys := func() {
+		next := map[string]string{}
+		for _, profile := range d.config.Values().Profiles {
+			if profile.Hotkey != "" {
+				next[profile.Hotkey] = profile.Name
+			}
+		}
+
+		// switching profiles reloads the config too, and the hotkey set is
+		// unchanged then - don't churn the OS registrations over it
+		if maps.Equal(profileHotkeys, next) {
+			return
+		}
+
+		if err := app.GlobalShortcut.UnregisterAll(); err != nil {
+			logger.Warnw("Failed to unregister profile hotkeys", "error", err)
+		}
+
+		for hotkey, name := range next {
+			if err := app.GlobalShortcut.Register(hotkey, func() {
+				logger.Infow("Profile hotkey pressed, switching profile", "profile", name)
+
+				if err := d.config.SetActiveProfile(name, d.localizer); err != nil {
+					logger.Warnw("Failed to switch profile", "profile", name, "error", err)
+					return
+				}
+
+				// a global hotkey fires while deej is invisible, so the toast
+				// is the only feedback the user gets
+				d.notifier.Notify(getProfileSwitchedText(d, name))
+			}); err != nil {
+				// usually another application already owns the combination.
+				// The entry stays in the set so an unrelated reload doesn't
+				// retry (and re-churn) it; editing the hotkey does
+				logger.Warnw("Failed to register profile hotkey", "hotkey", hotkey, "profile", name, "error", err)
+			}
+		}
+
+		profileHotkeys = next
+	}
+	syncProfileHotkeys()
+
 	menu.AddSeparator()
 
 	statusInfo := menu.Add(getStatusItemTitle(d)).SetEnabled(false)
@@ -325,6 +448,8 @@ func (d *Deej) initializeTray(onDone func()) {
 
 				// config applied (GUI save or manual edit)
 				case <-configReloadedChannel:
+					rebuildProfilesMenu()
+					syncProfileHotkeys()
 					app.Event.Emit(eventConfig)
 					emitState()
 					app.Event.Emit(eventSliders, d.serial.CurrentSliderPercentValues())

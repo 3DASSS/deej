@@ -15,6 +15,21 @@ slider_mapping:
   3: discord.exe
   4: chrome.exe
 
+# Если нужно несколько раскладок, замените slider_mapping выше на список профилей:
+# у каждого своя раскладка и необязательное сочетание клавиш, которое переключает
+# на него из любого приложения. Остальные настройки файла общие для всех профилей
+# active_profile: default
+# profiles:
+#   - name: default
+#     slider_mapping:
+#       0: master
+#       1: discord.exe
+#   - name: gaming
+#     hotkey: Ctrl+Alt+2
+#     slider_mapping:
+#       0: master
+#       1: [game.exe, discord.exe]
+
 # Инвертирование значений ползунков микшера. (1023 - 0, 0 - 1023)
 invert_sliders: false
 
