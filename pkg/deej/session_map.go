@@ -38,6 +38,13 @@ const (
 	// obs targets are handled directly via OBS WebSocket API
 	obsTargetPrefix = "deej.obs:"
 
+	// discord targets are handled directly via Discord's local RPC connection.
+	// mapping the discord.exe process covers none of these: they reach inside
+	// Discord rather than at its audio session
+	discordUserTargetPrefix = "deej.discord:"      // one person in the current voice channel
+	discordInputTarget      = "deej.discord.input" // own microphone level
+	discordOutputTarget     = "deej.discord.output"
+
 	// targets the currently active window (Windows-only, experimental)
 	specialTargetCurrentWindow = "current"
 
@@ -265,14 +272,18 @@ func (m *sessionMap) sessionMapped(session Session) bool {
 	// look through the actual mappings
 	for _, entry := range m.deej.config.Values().ActiveMapping() {
 		for _, target := range entry.Targets {
+			target = strings.ToLower(target)
 
 			// ignore special transforms
 			if m.targetHasSpecialTransform(target) {
 				continue
 			}
 
-			// safe to assume this has a single element because we made sure there's no special transform
-			target = m.resolveTarget(target)[0]
+			resolvedTargets := m.resolveTarget(target)
+			if len(resolvedTargets) == 0 {
+				continue
+			}
+			target = resolvedTargets[0]
 
 			if target == session.Key() {
 				return true
@@ -337,13 +348,22 @@ func (m *sessionMap) setSessionVolumes(target string, volume float32) {
 }
 
 // applySpecialTargetAction handles targets that control external systems rather than audio sessions
-// (e.g. OBS, and potentially Discord or others in the future).
+// (e.g. OBS and Discord).
 // Returns true if the target was handled, false if it should be treated as a normal audio target.
 func (m *sessionMap) applySpecialTargetAction(target string, volume float32) bool {
+	lowerTarget := strings.ToLower(target)
+	discordKey, isDiscordTarget := discordTargetKey(target)
+
 	switch {
-	case strings.HasPrefix(strings.ToLower(target), obsTargetPrefix):
+	case strings.HasPrefix(lowerTarget, obsTargetPrefix):
 		inputName := target[len(obsTargetPrefix):]
 		m.handleOBSTarget(inputName, volume)
+		return true
+
+	case isDiscordTarget:
+		if m.deej.discord != nil {
+			m.deej.discord.setVolume(discordKey, volume)
+		}
 		return true
 	}
 

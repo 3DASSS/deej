@@ -32,6 +32,7 @@ type Deej struct {
 	serial    *SerialIO
 	sessions  *sessionMap
 	obs       *OBSClient
+	discord   *DiscordClient
 	bundle    *i18n.Bundle
 	localizer *i18n.Localizer
 	tray      trayState
@@ -104,6 +105,7 @@ func NewDeej(logger *zap.SugaredLogger, verbose bool, configPath string) (*Deej,
 	d.sessions = sessions
 
 	d.obs = NewOBSClient(d, logger)
+	d.discord = NewDiscordClient(d, logger)
 
 	logger.Debug("Created deej instance")
 
@@ -210,6 +212,7 @@ func (d *Deej) run() {
 	d.serial.Start()
 
 	d.obs.Start()
+	d.discord.Start()
 
 	// wait until stopped (gracefully)
 	<-d.stopChannel
@@ -234,6 +237,7 @@ func (d *Deej) stop() error {
 	d.config.StopWatchingConfigFile()
 	d.serial.Stop()
 	d.obs.Stop()
+	d.discord.Stop()
 
 	// release the session map
 	if err := d.sessions.release(); err != nil {

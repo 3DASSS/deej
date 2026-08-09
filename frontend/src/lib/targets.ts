@@ -2,6 +2,9 @@ import { m } from "../paraglide/messages";
 import { app } from "./state.svelte";
 
 export const OBS_PREFIX = "deej.obs:";
+export const DISCORD_PREFIX = "deej.discord:";
+export const DISCORD_INPUT = "deej.discord.input";
+export const DISCORD_OUTPUT = "deej.discord.output";
 
 // special target -> localized label/description message functions
 const specialTargets: Record<string, { label: () => string; desc: () => string }> = {
@@ -11,6 +14,8 @@ const specialTargets: Record<string, { label: () => string; desc: () => string }
   "deej.current": { label: m.targetCurrent, desc: m.targetCurrentDesc },
   "deej.current.fullscreen": { label: m.targetCurrentFullscreen, desc: m.targetCurrentFullscreenDesc },
   "deej.unmapped": { label: m.targetUnmapped, desc: m.targetUnmappedDesc },
+  [DISCORD_INPUT]: { label: m.targetDiscordInput, desc: m.targetDiscordInputDesc },
+  [DISCORD_OUTPUT]: { label: m.targetDiscordOutput, desc: m.targetDiscordOutputDesc },
 };
 
 export function specialTargetLabel(target: string): string | null {
@@ -36,6 +41,10 @@ export function targetLabel(target: string): string {
   const lower = target.toLowerCase();
   if (lower.startsWith(OBS_PREFIX)) {
     return `${target.slice(OBS_PREFIX.length)} (OBS)`;
+  }
+  if (lower.startsWith(DISCORD_PREFIX)) {
+    const id = target.slice(DISCORD_PREFIX.length);
+    return `${app.discordUserNames[id] ?? id} (Discord)`;
   }
 
   const session = app.sessions.find((s) => s.key === lower);

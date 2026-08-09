@@ -32,12 +32,33 @@ export function GetAutostart(): $CancellablePromise<boolean> {
 }
 
 /**
+ * GetDiscordStatus returns the Discord integration's live state
+ */
+export function GetDiscordStatus(): $CancellablePromise<$models.DiscordStatusDTO> {
+    return $Call.ByID(2917961514).then(($result: any) => {
+        return $$createType1($result);
+    });
+}
+
+/**
+ * GetDiscordUsers returns the members of the voice channel the user is
+ * currently in, for slider mapping suggestions. The roster is kept current by
+ * RPC events, so this serves it as-is; the GUI is told to re-read it by the
+ * deej:discord event rather than by polling
+ */
+export function GetDiscordUsers(): $CancellablePromise<$models.DiscordUserDTO[]> {
+    return $Call.ByID(96084360).then(($result: any) => {
+        return $$createType3($result);
+    });
+}
+
+/**
  * GetOBSInputs returns the input names of the connected OBS instance, for
  * slider mapping suggestions
  */
 export function GetOBSInputs(): $CancellablePromise<string[]> {
     return $Call.ByID(1620740735).then(($result: any) => {
-        return $$createType1($result);
+        return $$createType4($result);
     });
 }
 
@@ -47,7 +68,7 @@ export function GetOBSInputs(): $CancellablePromise<string[]> {
  */
 export function GetProcessIcons(names: string[]): $CancellablePromise<{ [_ in string]?: string }> {
     return $Call.ByID(3155775785, names).then(($result: any) => {
-        return $$createType2($result);
+        return $$createType5($result);
     });
 }
 
@@ -57,7 +78,7 @@ export function GetProcessIcons(names: string[]): $CancellablePromise<{ [_ in st
  */
 export function GetProcesses(): $CancellablePromise<string[]> {
     return $Call.ByID(3688174489).then(($result: any) => {
-        return $$createType1($result);
+        return $$createType4($result);
     });
 }
 
@@ -67,7 +88,7 @@ export function GetProcesses(): $CancellablePromise<string[]> {
  */
 export function GetSessions(): $CancellablePromise<$models.SessionInfoDTO[]> {
     return $Call.ByID(1202968053).then(($result: any) => {
-        return $$createType4($result);
+        return $$createType7($result);
     });
 }
 
@@ -76,7 +97,7 @@ export function GetSessions(): $CancellablePromise<$models.SessionInfoDTO[]> {
  */
 export function GetSettings(): $CancellablePromise<$models.Settings> {
     return $Call.ByID(1935164325).then(($result: any) => {
-        return $$createType5($result);
+        return $$createType8($result);
     });
 }
 
@@ -86,8 +107,16 @@ export function GetSettings(): $CancellablePromise<$models.Settings> {
  */
 export function GetStatus(): $CancellablePromise<$models.StatusDTO> {
     return $Call.ByID(4223089242).then(($result: any) => {
-        return $$createType6($result);
+        return $$createType9($result);
     });
+}
+
+/**
+ * LinkDiscord runs the interactive authorization. Discord shows the user a
+ * consent dialog, so this blocks until they answer it (or time out)
+ */
+export function LinkDiscord(): $CancellablePromise<void> {
+    return $Call.ByID(656445116);
 }
 
 /**
@@ -95,7 +124,7 @@ export function GetStatus(): $CancellablePromise<$models.StatusDTO> {
  */
 export function ListSerialPorts(): $CancellablePromise<$models.SerialPortDTO[]> {
     return $Call.ByID(102515344).then(($result: any) => {
-        return $$createType8($result);
+        return $$createType11($result);
     });
 }
 
@@ -123,13 +152,23 @@ export function SetAutostart(state: boolean): $CancellablePromise<void> {
     return $Call.ByID(470775857, state);
 }
 
+/**
+ * UnlinkDiscord forgets the stored authorization
+ */
+export function UnlinkDiscord(): $CancellablePromise<void> {
+    return $Call.ByID(235581697);
+}
+
 // Private type creation functions
 const $$createType0 = $models.AppInfoDTO.createFrom;
-const $$createType1 = $Create.Array($Create.Any);
-const $$createType2 = $Create.Map($Create.Any, $Create.Any);
-const $$createType3 = $models.SessionInfoDTO.createFrom;
-const $$createType4 = $Create.Array($$createType3);
-const $$createType5 = $models.Settings.createFrom;
-const $$createType6 = $models.StatusDTO.createFrom;
-const $$createType7 = $models.SerialPortDTO.createFrom;
-const $$createType8 = $Create.Array($$createType7);
+const $$createType1 = $models.DiscordStatusDTO.createFrom;
+const $$createType2 = $models.DiscordUserDTO.createFrom;
+const $$createType3 = $Create.Array($$createType2);
+const $$createType4 = $Create.Array($Create.Any);
+const $$createType5 = $Create.Map($Create.Any, $Create.Any);
+const $$createType6 = $models.SessionInfoDTO.createFrom;
+const $$createType7 = $Create.Array($$createType6);
+const $$createType8 = $models.Settings.createFrom;
+const $$createType9 = $models.StatusDTO.createFrom;
+const $$createType10 = $models.SerialPortDTO.createFrom;
+const $$createType11 = $Create.Array($$createType10);

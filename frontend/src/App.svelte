@@ -42,4 +42,8 @@
     targetDialogOpen = false;
     openSettings("obs");
   }}
+  onOpenDiscordSettings={() => {
+    targetDialogOpen = false;
+    openSettings("discord");
+  }}
 />

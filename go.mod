@@ -4,6 +4,7 @@ go 1.25.0
 
 require (
 	git.sr.ht/~jackmordaunt/go-toast/v2 v2.0.3
+	github.com/Microsoft/go-winio v0.6.2
 	github.com/andreykaipov/goobs v1.7.1
 	github.com/fsnotify/fsnotify v1.9.0
 	github.com/go-ole/go-ole v1.3.0

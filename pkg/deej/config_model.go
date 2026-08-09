@@ -17,13 +17,14 @@ import (
 // in defaultSettings and, if needed, a rule in normalize) to reach the file,
 // the runtime snapshot and the settings GUI
 type Settings struct {
-	ActiveProfile  string      `yaml:"active_profile" json:"activeProfile"`
-	Profiles       []Profile   `yaml:"profiles" json:"profiles"`
-	InvertSliders  bool        `yaml:"invert_sliders" json:"invertSliders"`
-	COM            COMSettings `yaml:"com" json:"com"`
-	NoiseReduction string      `yaml:"noise_reduction,omitempty" json:"noiseReduction"`
-	Language       string      `yaml:"language" json:"language"`
-	OBS            OBSSettings `yaml:"obs" json:"obs"`
+	ActiveProfile  string          `yaml:"active_profile" json:"activeProfile"`
+	Profiles       []Profile       `yaml:"profiles" json:"profiles"`
+	InvertSliders  bool            `yaml:"invert_sliders" json:"invertSliders"`
+	COM            COMSettings     `yaml:"com" json:"com"`
+	NoiseReduction string          `yaml:"noise_reduction,omitempty" json:"noiseReduction"`
+	Language       string          `yaml:"language" json:"language"`
+	OBS            OBSSettings     `yaml:"obs" json:"obs"`
+	Discord        DiscordSettings `yaml:"discord" json:"discord"`
 }
 
 // defaultProfileName is the profile a config without any gets, and the one a
@@ -147,6 +148,17 @@ type OBSSettings struct {
 	Password string `yaml:"password" json:"password"`
 }
 
+// DiscordSettings describes the Discord RPC integration. deej can't ship
+// credentials of its own: Discord gates the rpc.voice.* scopes to an
+// application's owner, so the user creates their own application and pastes
+// its ID and secret here. The OAuth token that comes out of linking is not
+// kept here - it lives in its own file next to the config (see discord.go)
+type DiscordSettings struct {
+	Enabled      bool   `yaml:"enabled" json:"enabled"`
+	ClientID     string `yaml:"client_id" json:"clientId"`
+	ClientSecret string `yaml:"client_secret" json:"clientSecret"`
+}
+
 func defaultSettings() Settings {
 	return Settings{
 		// the active profile is left to normalize, which resolves an empty
@@ -230,9 +242,51 @@ func (s *Settings) normalize() []string {
 		s.OBS.Host = defaults.OBS.Host
 	}
 
+	problems = append(problems, s.normalizeDiscord()...)
 	problems = append(problems, s.normalizeProfiles()...)
 
 	return problems
+}
+
+// normalizeDiscord canonicalizes the Discord credentials. The integration
+// can't do anything without both of them, so enabling it without them is
+// reported rather than left as a connection that quietly never happens
+func (s *Settings) normalizeDiscord() []string {
+	var problems []string
+
+	s.Discord.ClientID = strings.TrimSpace(s.Discord.ClientID)
+	s.Discord.ClientSecret = strings.TrimSpace(s.Discord.ClientSecret)
+
+	if !s.Discord.Enabled {
+		return nil
+	}
+
+	switch {
+	case s.Discord.ClientID == "":
+		problems = append(problems, "discord client id must not be empty")
+
+	// a client id is a snowflake; catching a pasted client *secret* here saves
+	// a confusing round trip through discord's OAuth error responses
+	case !isDigits(s.Discord.ClientID):
+		problems = append(problems, fmt.Sprintf("discord client id must be numeric, got %q", s.Discord.ClientID))
+		s.Discord.ClientID = ""
+	}
+
+	if s.Discord.ClientSecret == "" {
+		problems = append(problems, "discord client secret must not be empty")
+	}
+
+	// leave the file self-consistent: enabled without usable credentials would
+	// otherwise sit there looking like it should be working
+	if len(problems) > 0 {
+		s.Discord.Enabled = false
+	}
+
+	return problems
+}
+
+func isDigits(value string) bool {
+	return value != "" && strings.IndexFunc(value, func(r rune) bool { return r < '0' || r > '9' }) < 0
 }
 
 // normalizeProfiles canonicalizes the profile list and the active profile.

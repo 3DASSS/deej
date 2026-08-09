@@ -9,6 +9,9 @@ export {
 export {
     AppInfoDTO,
     COMSettings,
+    DiscordSettings,
+    DiscordStatusDTO,
+    DiscordUserDTO,
     OBSSettings,
     Profile,
     SerialPortDTO,

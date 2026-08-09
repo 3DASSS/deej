@@ -250,6 +250,61 @@ func (s *SettingsService) GetOBSInputs() ([]string, error) {
 	return s.d.obs.ListInputs()
 }
 
+// DiscordUserDTO describes one member of the current voice channel
+type DiscordUserDTO struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+
+// DiscordStatusDTO describes the Discord integration's state for the settings GUI
+type DiscordStatusDTO struct {
+	Linked    bool   `json:"linked"`    // an account has been authorized
+	Connected bool   `json:"connected"` // the RPC connection is up
+	Channel   string `json:"channel"`   // the voice channel the user is in, if any
+}
+
+// GetDiscordStatus returns the Discord integration's live state
+func (s *SettingsService) GetDiscordStatus() DiscordStatusDTO {
+	if s.d.discord == nil {
+		return DiscordStatusDTO{}
+	}
+
+	linked, connected, channel := s.d.discord.Status()
+
+	return DiscordStatusDTO{Linked: linked, Connected: connected, Channel: channel}
+}
+
+// GetDiscordUsers returns the members of the voice channel the user is
+// currently in, for slider mapping suggestions. The roster is kept current by
+// RPC events, so this serves it as-is; the GUI is told to re-read it by the
+// deej:discord event rather than by polling
+func (s *SettingsService) GetDiscordUsers() ([]DiscordUserDTO, error) {
+	if s.d.discord == nil {
+		return nil, errors.New("discord integration is not initialized")
+	}
+
+	return s.d.discord.VoiceUsers(), nil
+}
+
+// LinkDiscord runs the interactive authorization. Discord shows the user a
+// consent dialog, so this blocks until they answer it (or time out)
+func (s *SettingsService) LinkDiscord() error {
+	if s.d.discord == nil {
+		return errors.New("discord integration is not initialized")
+	}
+
+	return s.d.discord.Link()
+}
+
+// UnlinkDiscord forgets the stored authorization
+func (s *SettingsService) UnlinkDiscord() error {
+	if s.d.discord == nil {
+		return errors.New("discord integration is not initialized")
+	}
+
+	return s.d.discord.Unlink()
+}
+
 // ListSerialPorts enumerates the serial ports available on this machine
 func (s *SettingsService) ListSerialPorts() ([]SerialPortDTO, error) {
 	ports, err := enumerator.GetDetailedPortsList()

@@ -37,6 +37,7 @@ const (
 	eventState    = "deej:state"    // {connected bool, comPort string}
 	eventConfig   = "deej:config"   // no payload; config was (re)applied
 	eventSessions = "deej:sessions" // no payload; audio sessions changed
+	eventDiscord  = "deej:discord"  // no payload; the discord voice roster changed
 )
 
 func getConfigItemText(d *Deej) (string, string) {
@@ -411,6 +412,7 @@ func (d *Deej) initializeTray(onDone func()) {
 		stateChangeChannel := d.serial.SubscribeToStateChangeEvent()
 		sessionCountChangeChannel := d.sessions.SubscribeToSessionCountChange()
 		configReloadedChannel := d.config.SubscribeToChanges()
+		discordRosterChannel := d.discord.SubscribeToRosterChange()
 
 		emitState := func() {
 			app.Event.Emit(eventState, map[string]any{
@@ -438,6 +440,10 @@ func (d *Deej) initializeTray(onDone func()) {
 					})
 					emitState()
 					app.Event.Emit(eventSliders, d.serial.CurrentSliderPercentValues())
+
+				// someone joined or left the discord voice channel
+				case <-discordRosterChannel:
+					app.Event.Emit(eventDiscord)
 
 				// session count changed
 				case <-sessionCountChangeChannel:

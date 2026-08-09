@@ -86,6 +86,113 @@ export class COMSettings {
 }
 
 /**
+ * DiscordSettings describes the Discord RPC integration. deej can't ship
+ * credentials of its own: Discord gates the rpc.voice.* scopes to an
+ * application's owner, so the user creates their own application and pastes
+ * its ID and secret here. The OAuth token that comes out of linking is not
+ * kept here - it lives in its own file next to the config (see discord.go)
+ */
+export class DiscordSettings {
+    "enabled": boolean;
+    "clientId": string;
+    "clientSecret": string;
+
+    /** Creates a new DiscordSettings instance. */
+    constructor($$source: Partial<DiscordSettings> = {}) {
+        if (!("enabled" in $$source)) {
+            this["enabled"] = false;
+        }
+        if (!("clientId" in $$source)) {
+            this["clientId"] = "";
+        }
+        if (!("clientSecret" in $$source)) {
+            this["clientSecret"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new DiscordSettings instance from a string or object.
+     */
+    static createFrom($$source: any = {}): DiscordSettings {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new DiscordSettings($$parsedSource as Partial<DiscordSettings>);
+    }
+}
+
+/**
+ * DiscordStatusDTO describes the Discord integration's state for the settings GUI
+ */
+export class DiscordStatusDTO {
+    /**
+     * an account has been authorized
+     */
+    "linked": boolean;
+
+    /**
+     * the RPC connection is up
+     */
+    "connected": boolean;
+
+    /**
+     * the voice channel the user is in, if any
+     */
+    "channel": string;
+
+    /** Creates a new DiscordStatusDTO instance. */
+    constructor($$source: Partial<DiscordStatusDTO> = {}) {
+        if (!("linked" in $$source)) {
+            this["linked"] = false;
+        }
+        if (!("connected" in $$source)) {
+            this["connected"] = false;
+        }
+        if (!("channel" in $$source)) {
+            this["channel"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new DiscordStatusDTO instance from a string or object.
+     */
+    static createFrom($$source: any = {}): DiscordStatusDTO {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new DiscordStatusDTO($$parsedSource as Partial<DiscordStatusDTO>);
+    }
+}
+
+/**
+ * DiscordUserDTO describes one member of the current voice channel
+ */
+export class DiscordUserDTO {
+    "id": string;
+    "name": string;
+
+    /** Creates a new DiscordUserDTO instance. */
+    constructor($$source: Partial<DiscordUserDTO> = {}) {
+        if (!("id" in $$source)) {
+            this["id"] = "";
+        }
+        if (!("name" in $$source)) {
+            this["name"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new DiscordUserDTO instance from a string or object.
+     */
+    static createFrom($$source: any = {}): DiscordUserDTO {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new DiscordUserDTO($$parsedSource as Partial<DiscordUserDTO>);
+    }
+}
+
+/**
  * HexWord is a 16-bit value carried as a hex string (e.g. "1A86"), the form
  * both the config file and the GUI use. An empty value means "use the
  * built-in default"
@@ -270,6 +377,7 @@ export class Settings {
     "noiseReduction": string;
     "language": string;
     "obs": OBSSettings;
+    "discord": DiscordSettings;
 
     /** Creates a new Settings instance. */
     constructor($$source: Partial<Settings> = {}) {
@@ -294,6 +402,9 @@ export class Settings {
         if (!("obs" in $$source)) {
             this["obs"] = (new OBSSettings());
         }
+        if (!("discord" in $$source)) {
+            this["discord"] = (new DiscordSettings());
+        }
 
         Object.assign(this, $$source);
     }
@@ -305,6 +416,7 @@ export class Settings {
         const $$createField1_0 = $$createType5;
         const $$createField3_0 = $$createType6;
         const $$createField6_0 = $$createType7;
+        const $$createField7_0 = $$createType8;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("profiles" in $$parsedSource) {
             $$parsedSource["profiles"] = $$createField1_0($$parsedSource["profiles"]);
@@ -314,6 +426,9 @@ export class Settings {
         }
         if ("obs" in $$parsedSource) {
             $$parsedSource["obs"] = $$createField6_0($$parsedSource["obs"]);
+        }
+        if ("discord" in $$parsedSource) {
+            $$parsedSource["discord"] = $$createField7_0($$parsedSource["discord"]);
         }
         return new Settings($$parsedSource as Partial<Settings>);
     }
@@ -388,7 +503,7 @@ export class StatusDTO {
      * Creates a new StatusDTO instance from a string or object.
      */
     static createFrom($$source: any = {}): StatusDTO {
-        const $$createField2_0 = $$createType8;
+        const $$createField2_0 = $$createType9;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("sliderValues" in $$parsedSource) {
             $$parsedSource["sliderValues"] = $$createField2_0($$parsedSource["sliderValues"]);
@@ -411,4 +526,5 @@ const $$createType4 = Profile.createFrom;
 const $$createType5 = $Create.Array($$createType4);
 const $$createType6 = COMSettings.createFrom;
 const $$createType7 = OBSSettings.createFrom;
-const $$createType8 = $Create.Array($Create.Any);
+const $$createType8 = DiscordSettings.createFrom;
+const $$createType9 = $Create.Array($Create.Any);

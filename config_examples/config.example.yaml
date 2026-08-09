@@ -8,6 +8,8 @@
 # on linux, input devices get an ' (input)' suffix, i.e. "HyperX Cloud (input)", since a device's input and output can share the same name
 # windows only - you can use 'system' to control the "system sounds" volume
 # you can use 'deej.obs:<input name>' to control OBS audio sources (requires obs.enabled: true)
+# you can use 'deej.discord:<name>' to control one person's volume in your voice channel, and
+# 'deej.discord.input' / 'deej.discord.output' for your own levels inside discord (requires discord.enabled: true)
 # important: slider indexes start at 0, regardless of which analog pins you're using!
 slider_mapping:
   0: firefox.exe
@@ -60,3 +62,15 @@ obs:
   host: localhost
   port: 4455
   password: ""
+
+# Discord integration (optional)
+# control the volume of individual people in a voice call with 'deej.discord:<name>',
+# and your own levels inside discord with 'deej.discord.input' / 'deej.discord.output'
+# discord only allows this for an application you own, so create one at
+# https://discord.com/developers/applications, add http://localhost as a redirect URI
+# under OAuth2, and put its client id and secret here. then link the account from
+# deej's settings window - discord will ask you to approve it once
+discord:
+  enabled: false
+  client_id: ""
+  client_secret: ""

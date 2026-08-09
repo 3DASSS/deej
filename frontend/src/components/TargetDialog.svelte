@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { Events } from "@wailsio/runtime";
   import { Dialog, Tabs } from "bits-ui";
   import AppWindow from "@lucide/svelte/icons/app-window";
   import Check from "@lucide/svelte/icons/check";
@@ -6,24 +7,41 @@
   import Plus from "@lucide/svelte/icons/plus";
   import Sparkles from "@lucide/svelte/icons/sparkles";
   import Speaker from "@lucide/svelte/icons/speaker";
-  import Video from "@lucide/svelte/icons/video";
+  import User from "@lucide/svelte/icons/user";
+  import Volume2 from "@lucide/svelte/icons/volume-2";
   import X from "@lucide/svelte/icons/x";
-  import { AppInfoDTO, Settings, SettingsService } from "../../bindings/github.com/nik9play/deej/pkg/deej";
-  import { app, refreshSessions } from "../lib/state.svelte";
+  import {
+    AppInfoDTO,
+    Settings,
+    SettingsService,
+  } from "../../bindings/github.com/nik9play/deej/pkg/deej";
+  import { app, refreshDiscordUsers, refreshSessions } from "../lib/state.svelte";
   import { activeMapping, activeProfile } from "../lib/profiles";
   import { m } from "../paraglide/messages";
-  import { OBS_PREFIX, prettifyProcessName, specialTargetDescription, specialTargetLabel, targetLabel } from "../lib/targets";
+  import {
+    DISCORD_INPUT,
+    DISCORD_OUTPUT,
+    DISCORD_PREFIX,
+    OBS_PREFIX,
+    prettifyProcessName,
+    specialTargetDescription,
+    specialTargetLabel,
+    targetLabel,
+  } from "../lib/targets";
+  import SimpleIcon from "./ui/SimpleIcon.svelte";
 
   let {
     open = $bindable(false),
     slider,
     appInfo,
     onOpenObsSettings,
+    onOpenDiscordSettings,
   }: {
     open?: boolean;
     slider: number;
     appInfo: AppInfoDTO | null;
     onOpenObsSettings?: () => void;
+    onOpenDiscordSettings?: () => void;
   } = $props();
 
   let targets: string[] = $state([]);
@@ -33,6 +51,8 @@
   let obsSearch = $state("");
   let obsInputs: string[] = $state([]);
   let obsError = $state(false);
+  let discordSearch = $state("");
+  let discordConnected = $state(false);
   let processes: string[] = $state([]);
   let icons: Record<string, string> = $state({});
   let saving = $state(false);
@@ -59,6 +79,7 @@
       appSearch = "";
       deviceSearch = "";
       obsSearch = "";
+      discordSearch = "";
       errorText = "";
       void refreshSessions();
       void loadProcesses();
@@ -110,6 +131,26 @@
     }
   }
 
+  $effect(() => {
+    if (!open || tab !== "discord" || !app.settings?.discord.enabled) return;
+
+    void loadDiscordUsers();
+    const off = Events.On("deej:discord", () => void loadDiscordUsers());
+
+    return () => off();
+  });
+
+  async function loadDiscordUsers() {
+    try {
+      const status = await SettingsService.GetDiscordStatus();
+      discordConnected = status.connected;
+      if (discordConnected) await refreshDiscordUsers();
+    } catch {
+      discordConnected = false;
+      app.discordUsers = [];
+    }
+  }
+
   const specialTargets = $derived(appInfo?.specialTargets ?? []);
 
   const appItems = $derived.by(() => {
@@ -157,6 +198,19 @@
     return obsInputs.includes(value) ? "" : value;
   });
 
+  const discordItems = $derived.by(() => {
+    const query = discordSearch.trim().toLowerCase();
+    return app.discordUsers.filter((user) => query === "" || user.name.toLowerCase().includes(query));
+  });
+
+  // someone who isn't in the voice channel right now can still be mapped -
+  // the name resolves once they join
+  const discordFreeText = $derived.by(() => {
+    const value = discordSearch.trim();
+    if (value === "") return "";
+    return app.discordUsers.some((user) => user.name === value) ? "" : value;
+  });
+
   // arbitrary process names are allowed - offer to add the typed text when it
   // doesn't exactly match a running session or process
   const freeText = $derived.by(() => {
@@ -202,6 +256,15 @@
     obsSearch = "";
   }
 
+  function addDiscordFreeText() {
+    if (discordFreeText === "") return;
+    const target = DISCORD_PREFIX + discordFreeText;
+    if (!isSelected(target)) {
+      targets = [...targets, target];
+    }
+    discordSearch = "";
+  }
+
   async function save() {
     if (!app.settings) return;
     saving = true;
@@ -232,6 +295,16 @@
     type="button"
     class="cursor-pointer text-body underline underline-offset-2 hover:text-muted"
     onclick={onOpenObsSettings}
+  >
+    {m.openSettings()}
+  </button>
+{/snippet}
+
+{#snippet discordSettingsLink()}
+  <button
+    type="button"
+    class="cursor-pointer text-body underline underline-offset-2 hover:text-muted"
+    onclick={onOpenDiscordSettings}
   >
     {m.openSettings()}
   </button>
@@ -302,12 +375,18 @@
 
         <Tabs.Root bind:value={tab} class="flex min-h-0 flex-1 flex-col">
           <Tabs.List class="flex shrink-0 gap-1 border-b border-edge">
-            {#each [{ value: "apps", label: m.tabApps(), Icon: AppWindow }, { value: "devices", label: m.tabDevices(), Icon: Speaker }, { value: "special", label: m.tabSpecial(), Icon: Sparkles }, { value: "obs", label: m.tabObs(), Icon: Video }] as tabItem (tabItem.value)}
+            {#each [{ value: "apps", label: m.tabApps(), Icon: AppWindow }, { value: "devices", label: m.tabDevices(), Icon: Speaker }, { value: "special", label: m.tabSpecial(), Icon: Sparkles }, { value: "obs", label: m.tabObs(), Icon: null }, { value: "discord", label: m.tabDiscord(), Icon: null }] as tabItem (tabItem.value)}
               <Tabs.Trigger
                 value={tabItem.value}
                 class="-mb-px flex items-center gap-1.5 border-b-2 border-transparent px-2.5 py-1.5 text-sm text-muted transition-colors hover:text-body data-[state=active]:border-accent data-[state=active]:text-body"
               >
-                <tabItem.Icon size={14} />
+                {#if tabItem.value === "obs"}
+                  <SimpleIcon name="obs" size={14} />
+                {:else if tabItem.value === "discord"}
+                  <SimpleIcon name="discord" size={14} />
+                {:else}
+                  <tabItem.Icon size={14} />
+                {/if}
                 {tabItem.label}
               </Tabs.Trigger>
             {/each}
@@ -427,6 +506,60 @@
                   {:else}
                     {#if obsFreeText === ""}
                       <div class="hint px-2 py-1.5">{m.noObsInputs()}</div>
+                    {/if}
+                  {/each}
+                {/if}
+              </div>
+            {/if}
+          </Tabs.Content>
+
+          <Tabs.Content value="discord" class="flex min-h-0 flex-1 flex-col gap-2 pt-3">
+            {#if !app.settings?.discord.enabled}
+              <div class="hint py-1.5">
+                {m.discordDisabled()}
+                {@render discordSettingsLink()}
+              </div>
+            {:else}
+              <input
+                type="text"
+                class="input shrink-0"
+                placeholder={m.searchDiscordUsers()}
+                bind:value={discordSearch}
+                onkeydown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    addDiscordFreeText();
+                  }
+                }}
+              />
+              <div class="min-h-0 flex-1 overflow-y-auto">
+                {#if discordFreeText !== ""}
+                  <button
+                    type="button"
+                    class="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm text-accent transition-colors hover:bg-chip"
+                    onclick={addDiscordFreeText}
+                  >
+                    <Plus size={14} class="shrink-0" />
+                    <span class="truncate">{m.addTarget()}: "{discordFreeText}"</span>
+                  </button>
+                {/if}
+
+                <!-- the user's own levels don't depend on a voice channel, so
+                     they're offered whether or not the roster loaded -->
+                {@render itemRow(DISCORD_INPUT, specialTargetLabel(DISCORD_INPUT) ?? DISCORD_INPUT, specialTargetDescription(DISCORD_INPUT) ?? "", false, Mic)}
+                {@render itemRow(DISCORD_OUTPUT, specialTargetLabel(DISCORD_OUTPUT) ?? DISCORD_OUTPUT, specialTargetDescription(DISCORD_OUTPUT) ?? "", false, Volume2)}
+
+                {#if !discordConnected}
+                  <div class="hint px-2 pt-3 pb-1.5">
+                    {m.discordNotConnected()}
+                    {@render discordSettingsLink()}
+                  </div>
+                {:else}
+                  {#each discordItems as user (user.id)}
+                    {@render itemRow(DISCORD_PREFIX + user.id, user.name, "", false, User)}
+                  {:else}
+                    {#if discordFreeText === ""}
+                      <div class="hint px-2 pt-3 pb-1.5">{m.discordNoVoiceChannel()}</div>
                     {/if}
                   {/each}
                 {/if}

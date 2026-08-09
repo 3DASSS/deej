@@ -8,11 +8,12 @@
   import Cog from "@lucide/svelte/icons/cog";
   import Info from "@lucide/svelte/icons/info";
   import Layers from "@lucide/svelte/icons/layers";
+  import MessageCircle from "@lucide/svelte/icons/message-circle";
   import SlidersHorizontal from "@lucide/svelte/icons/sliders-horizontal";
-  import Video from "@lucide/svelte/icons/video";
   import {
     AppInfoDTO,
     COMSettings,
+    DiscordSettings,
     OBSSettings,
     Settings,
     SettingsService,
@@ -22,9 +23,11 @@
   import AboutSection from "./AboutSection.svelte";
   import ConnectionSection from "./ConnectionSection.svelte";
   import BehaviorSection from "./BehaviorSection.svelte";
+  import DiscordSection from "./DiscordSection.svelte";
   import GeneralSection from "./GeneralSection.svelte";
   import ObsSection from "./ObsSection.svelte";
   import ProfilesSection from "./ProfilesSection.svelte";
+  import SimpleIcon from "./ui/SimpleIcon.svelte";
 
   let tab = $state("general");
 
@@ -40,12 +43,13 @@
   const settings = $derived(app.settings);
   const ready = $derived(settings !== null);
 
-  // connection and obs settings make deej reconnect, so they're edited as
-  // drafts and committed explicitly. the drafts live here rather than in the
-  // sections because bits-ui unmounts inactive tabs, which would otherwise
-  // discard in-progress edits on a tab switch
+  // connection, obs and discord settings make deej reconnect, so they're
+  // edited as drafts and committed explicitly. the drafts live here rather
+  // than in the sections because bits-ui unmounts inactive tabs, which would
+  // otherwise discard in-progress edits on a tab switch
   let comDraft: COMSettings | null = $state(null);
   let obsDraft: OBSSettings | null = $state(null);
+  let discordDraft: DiscordSettings | null = $state(null);
 
   let statusText = $state("");
   let statusKind: "ok" | "error" = $state("ok");
@@ -58,13 +62,17 @@
   const obsDirty = $derived(
     !!settings && !!obsDraft && JSON.stringify(obsDraft) !== JSON.stringify(settings.obs),
   );
+  const discordDirty = $derived(
+    !!settings && !!discordDraft && JSON.stringify(discordDraft) !== JSON.stringify(settings.discord),
+  );
 
   const tabItems = $derived([
     { value: "general", label: m.general(), Icon: Cog, dirty: false },
     { value: "profiles", label: m.profiles(), Icon: Layers, dirty: false },
     { value: "connection", label: m.connection(), Icon: Cable, dirty: comDirty },
     { value: "behavior", label: m.behavior(), Icon: SlidersHorizontal, dirty: false },
-    { value: "obs", label: m.obs(), Icon: Video, dirty: obsDirty },
+    { value: "obs", label: m.obs(), Icon: null, dirty: obsDirty },
+    { value: "discord", label: m.discord(), Icon: null, dirty: discordDirty },
     { value: "about", label: m.about(), Icon: Info, dirty: false },
   ]);
 
@@ -83,6 +91,7 @@
       statusText = "";
       comDraft = $state.snapshot(settings!.com);
       obsDraft = $state.snapshot(settings!.obs);
+      discordDraft = $state.snapshot(settings!.discord);
     });
   });
 
@@ -134,7 +143,7 @@
         </Dialog.Close>
       </div>
 
-      {#if settings && comDraft && obsDraft}
+      {#if settings && comDraft && obsDraft && discordDraft}
         <Tabs.Root bind:value={tab} orientation="vertical" class="flex min-h-0 flex-1">
           <Tabs.List class="flex w-56 shrink-0 flex-col gap-1 p-2">
             {#each tabItems as tabItem (tabItem.value)}
@@ -142,7 +151,13 @@
                 value={tabItem.value}
                 class="flex items-center gap-2 rounded-md px-3 py-2 text-left text-sm text-muted transition-colors hover:bg-chip hover:text-body data-[state=active]:bg-chip data-[state=active]:text-body"
               >
-                <tabItem.Icon size={15} class="shrink-0" />
+                {#if tabItem.value === "obs"}
+                  <SimpleIcon name="obs" size={15} />
+                {:else if tabItem.value === "discord"}
+                  <SimpleIcon name="discord" size={15} />
+                {:else}
+                  <tabItem.Icon size={15} class="shrink-0" />
+                {/if}
                 {tabItem.label}
                 {#if tabItem.dirty}
                   <span
@@ -179,6 +194,15 @@
                 busy={saving}
                 onsave={() => save({ obs: $state.snapshot(obsDraft!) })}
                 onrevert={() => (obsDraft = $state.snapshot(settings!.obs))}
+              />
+            </Tabs.Content>
+            <Tabs.Content value="discord">
+              <DiscordSection
+                bind:draft={discordDraft}
+                dirty={discordDirty}
+                busy={saving}
+                onsave={() => save({ discord: $state.snapshot(discordDraft!) })}
+                onrevert={() => (discordDraft = $state.snapshot(settings!.discord))}
               />
             </Tabs.Content>
             <Tabs.Content value="about"><AboutSection {appInfo} /></Tabs.Content>

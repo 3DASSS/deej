@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@inlang/paraglide-js": "^2.21.0",
+    "@inlang/paraglide-js-svelte": "^1.0.4",
     "@lucide/svelte": "^1.24.0",
     "@wailsio/runtime": "latest",
     "bits-ui": "^2.18.1"

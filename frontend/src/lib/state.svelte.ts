@@ -1,5 +1,5 @@
 import { Events } from "@wailsio/runtime";
-import { SessionInfoDTO, Settings, SettingsService } from "../../bindings/github.com/nik9play/deej/pkg/deej";
+import { DiscordUserDTO, SessionInfoDTO, Settings, SettingsService } from "../../bindings/github.com/nik9play/deej/pkg/deej";
 import { tickOnChange } from "./tick";
 
 // live application state, fed by wails events from the Go side
@@ -9,6 +9,8 @@ export const app = $state({
   values: [] as number[], // 0..1 per slider, as sessions receive them
   settings: null as Settings | null,
   sessions: [] as SessionInfoDTO[], // running audio sessions with friendly names
+  discordUsers: [] as DiscordUserDTO[], // current voice-channel roster
+  discordUserNames: {} as Record<string, string>, // names retained after users leave
 });
 
 export async function refreshSettings(): Promise<void> {
@@ -26,6 +28,19 @@ export async function refreshSessions(): Promise<void> {
     app.sessions = (await SettingsService.GetSessions()) ?? [];
   } catch (err) {
     console.error("failed to load sessions", err);
+  }
+}
+
+export async function refreshDiscordUsers(): Promise<void> {
+  try {
+    app.discordUsers = (await SettingsService.GetDiscordUsers()) ?? [];
+    app.discordUserNames = Object.assign(
+      {},
+      app.discordUserNames,
+      Object.fromEntries(app.discordUsers.map((user) => [user.id, user.name])),
+    );
+  } catch {
+    app.discordUsers = [];
   }
 }
 
@@ -49,6 +64,9 @@ export function init(): () => void {
     Events.On("deej:sessions", () => {
       void refreshSessions();
     }),
+    Events.On("deej:discord", () => {
+      void refreshDiscordUsers();
+    }),
   ];
 
   SettingsService.GetStatus()
@@ -61,6 +79,7 @@ export function init(): () => void {
 
   void refreshSettings();
   void refreshSessions();
+  void refreshDiscordUsers();
 
   return () => offs.forEach((off) => off());
 }

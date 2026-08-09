@@ -8,6 +8,8 @@
 # На Linux устройства ввода получают суффикс ' (input)', например "HyperX Cloud (input)", так как вход и выход устройства могут иметь одинаковое имя
 # Только Windows - Вы можете вписать 'system' для управления громкостью звуков Windows, таких как уведомления
 # Вы можете вписать 'deej.obs:<имя источника>' для управления аудиоисточниками OBS (требуется obs.enabled: true)
+# Вы можете вписать 'deej.discord:<имя>' для управления громкостью собеседника в голосовом канале, а также
+# 'deej.discord.input' / 'deej.discord.output' для своих уровней внутри Discord (требуется discord.enabled: true)
 slider_mapping:
   0: master
   1: deej.current
@@ -59,3 +61,15 @@ obs:
   host: localhost
   port: 4455
   password: ""
+
+# Интеграция с Discord (опционально)
+# Управление громкостью отдельных собеседников через 'deej.discord:<имя>' в slider_mapping,
+# а также своими уровнями внутри Discord через 'deej.discord.input' / 'deej.discord.output'
+# Discord разрешает это только для вашего собственного приложения, поэтому создайте его на
+# https://discord.com/developers/applications, добавьте http://localhost в Redirect URI
+# в разделе OAuth2 и укажите client id и секрет здесь. Затем привяжите аккаунт в окне
+# настроек deej - Discord один раз попросит подтвердить доступ
+discord:
+  enabled: false
+  client_id: ""
+  client_secret: ""
