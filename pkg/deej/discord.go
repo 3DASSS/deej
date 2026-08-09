@@ -382,7 +382,11 @@ func (d *DiscordClient) send(conn *discordConn, key string, percent float32) err
 		return fmt.Errorf("no user %q in the current voice channel", name)
 	}
 
-	_, err := conn.request("SET_USER_VOICE_SETTINGS", map[string]any{"user_id": userID, "volume": discordUserVolume(percent)})
+	cfg := d.deej.config.Values().Discord
+	_, err := conn.request("SET_USER_VOICE_SETTINGS", map[string]any{
+		"user_id": userID,
+		"volume":  discordUserVolume(percent, cfg.VolumeConversion),
+	})
 
 	return err
 }
@@ -393,12 +397,16 @@ func discordVolume(percent float32) float64 {
 	return math.Round(min(max(float64(percent), 0), 1) * 100)
 }
 
-// discordUserVolume converts a 0.0-1.0 slider position to the amplitude
-// percentage expected for another user's volume. Discord's current client uses
-// a cube-root display curve, so the RPC value must use its inverse cubic curve.
-func discordUserVolume(percent float32) float64 {
+// discordUserVolume maps a 0.0-1.0 slider position onto Discord's participant
+// 0-100 participant-volume range. When conversion is enabled, the RPC value
+// uses the inverse of Discord's cube-root display curve.
+func discordUserVolume(percent float32, convert bool) float64 {
 	position := min(max(float64(percent), 0), 1)
-	return position * position * position * 100
+	if convert {
+		position = position * position * position
+	}
+
+	return position * 100
 }
 
 // resolveUser maps a mapping target to a Discord user ID. An all-digit target

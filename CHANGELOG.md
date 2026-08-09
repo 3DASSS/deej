@@ -30,7 +30,9 @@
     host: localhost
     port: 4455
     password: ""        # set if you use a password in OBS
+    volume_conversion: true
   ```
+  Keep `volume_conversion` enabled (the default) so the physical slider stays aligned with the fader shown in OBS and offers finer control at low volumes. Set it to `false` if you prefer the volume to rise faster as you move the slider.
 - **Discord integration** — Control the volume of individual people in a voice call, plus your own microphone and output levels inside Discord. Mapping the `discord.exe` process only ever moved all of Discord at once; this reaches inside it:
   ```yaml
   slider_mapping:
@@ -42,7 +44,9 @@
     enabled: true
     client_id: ""
     client_secret: ""
+    volume_conversion: true
   ```
+  For individual participant targets, keep `volume_conversion` enabled (the default) so the physical slider stays aligned with Discord's on-screen volume control and offers finer control at low volumes. Set it to `false` if you prefer the volume to rise faster. This setting does not affect `deej.discord.input` or `deej.discord.output`.
   Discord only allows this for an application you own, so deej can't ship its own credentials. Create one at [discord.com/developers](https://discord.com/developers/applications), add `http://localhost` as a redirect URI under _OAuth2_, paste its client ID and secret into the settings window's _Discord_ tab, and click _Link Discord account_ — Discord asks you to approve it once, and deej reconnects on its own from then on. The target picker lists whoever is in your voice channel, and a name that isn't there yet can be typed in by hand; it starts working once they join.
 - **Named audio device support on Linux** — Sliders can now be mapped to specific audio devices by name on Linux, same as Windows. Input devices are suffixed with `(input)` (e.g. `hyperx cloud (input)`), so a card's input and output can be controlled separately even when they share the same device name.
 - **Event-driven session tracking** — deej now listens for system audio events instead of polling, so sliders respond correctly as soon as an app opens or closes.

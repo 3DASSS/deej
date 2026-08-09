@@ -72,10 +72,15 @@ func (o *OBSClient) IsConnected() bool {
 }
 
 // obsVolumeMulFromPercent converts a 0.0-1.0 slider position to an OBS volume
-// multiplier using the cubic curve OBS's own mixer faders use
-func obsVolumeMulFromPercent(percent float32) float64 {
-	p := float64(percent)
-	return p * p * p
+// multiplier. Conversion uses the cubic curve OBS's own mixer faders use;
+// when disabled, the physical slider maps linearly to the multiplier.
+func obsVolumeMulFromPercent(percent float32, convert bool) float64 {
+	position := min(max(float64(percent), 0), 1)
+	if convert {
+		return position * position * position
+	}
+
+	return position
 }
 
 func (o *OBSClient) SetInputVolume(inputName string, percent float32) error {
@@ -84,7 +89,8 @@ func (o *OBSClient) SetInputVolume(inputName string, percent float32) error {
 		return fmt.Errorf("not connected to OBS")
 	}
 
-	vol := obsVolumeMulFromPercent(percent)
+	convert := o.deej.config.Values().OBS.VolumeConversion
+	vol := obsVolumeMulFromPercent(percent, convert)
 	_, err := conn.client.Inputs.SetInputVolume(&inputs.SetInputVolumeParams{
 		InputName:      &inputName,
 		InputVolumeMul: &vol,

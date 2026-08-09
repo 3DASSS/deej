@@ -62,6 +62,9 @@ obs:
   host: localhost
   port: 4455
   password: ""
+  # recommended: keeps the physical slider aligned with the fader shown in OBS
+  # and gives finer control at low volumes; false makes volume rise faster
+  volume_conversion: true
 
 # Discord integration (optional)
 # control the volume of individual people in a voice call with 'deej.discord:<name>',
@@ -74,3 +77,7 @@ discord:
   enabled: false
   client_id: ""
   client_secret: ""
+  # recommended for individual participants: keeps the physical slider aligned
+  # with Discord's on-screen control and improves low-volume precision;
+  # false makes volume rise faster. input/output targets are unaffected
+  volume_conversion: true

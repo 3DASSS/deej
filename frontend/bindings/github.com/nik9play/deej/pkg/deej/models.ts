@@ -96,6 +96,7 @@ export class DiscordSettings {
     "enabled": boolean;
     "clientId": string;
     "clientSecret": string;
+    "volumeConversion": boolean;
 
     /** Creates a new DiscordSettings instance. */
     constructor($$source: Partial<DiscordSettings> = {}) {
@@ -107,6 +108,9 @@ export class DiscordSettings {
         }
         if (!("clientSecret" in $$source)) {
             this["clientSecret"] = "";
+        }
+        if (!("volumeConversion" in $$source)) {
+            this["volumeConversion"] = false;
         }
 
         Object.assign(this, $$source);
@@ -207,6 +211,7 @@ export class OBSSettings {
     "host": string;
     "port": number;
     "password": string;
+    "volumeConversion": boolean;
 
     /** Creates a new OBSSettings instance. */
     constructor($$source: Partial<OBSSettings> = {}) {
@@ -221,6 +226,9 @@ export class OBSSettings {
         }
         if (!("password" in $$source)) {
             this["password"] = "";
+        }
+        if (!("volumeConversion" in $$source)) {
+            this["volumeConversion"] = false;
         }
 
         Object.assign(this, $$source);

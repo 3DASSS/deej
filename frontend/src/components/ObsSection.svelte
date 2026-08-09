@@ -34,6 +34,15 @@
   <div class="hint mt-2">{m.obsHint()}</div>
 
   {#if draft.enabled}
+    <div class="mt-3">
+      <FieldCheckbox
+        id="obs-volume-conversion"
+        bind:checked={draft.volumeConversion}
+        label={m.obsVolumeConversion()}
+      />
+      <div class="hint mt-1">{m.obsVolumeConversionHint()}</div>
+    </div>
+
     <div class="hint mt-3">{m.obsWebsocketHint()}</div>
     <div class="mt-3 flex flex-wrap gap-3.5">
       <div class="flex min-w-36 flex-1 flex-col gap-1">

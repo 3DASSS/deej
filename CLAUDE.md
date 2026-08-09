@@ -108,7 +108,7 @@ Only `slider_mapping` and `hotkey` are per-profile; `com`, `obs`, `discord`, `la
 
 Special targets: `master`, `system`, `mic`, `deej.current`, `deej.current.fullscreen`, `deej.unmapped`, `deej.obs:<inputName>` (OBS input volume), `deej.discord:<user>` (one person's volume in the current voice channel, matched case-insensitively against their display name, or a raw user ID), `deej.discord.input` and `deej.discord.output` (the user's own levels inside Discord).
 
-Serial connection settings live in the `com:` section (OBS settings in an analogous `obs:` section):
+Serial connection settings live in the `com:` section (OBS settings use an analogous `obs:` section; its `volume_conversion` defaults to true and selects cubic `position³` versus linear `position` input-volume multipliers):
 ```yaml
 com:
   port: auto        # COM port name, or "auto" to detect by USB VID/PID
@@ -119,13 +119,16 @@ com:
 
 The legacy flat keys (`com_port`, `baud_rate`, `com_vid`, `com_pid`) are still read for backwards compatibility, but new configs and GUI saves use the `com:` section only.
 
-Discord settings live in a `discord:` section holding only `enabled`, `client_id` and `client_secret` — the OAuth token that linking produces is stored separately in `discord_token.json`, so backend writes never race the GUI's whole-document saves:
+Discord settings live in a `discord:` section holding `enabled`, `client_id`, `client_secret` and `volume_conversion` — the OAuth token that linking produces is stored separately in `discord_token.json`, so backend writes never race the GUI's whole-document saves:
 ```yaml
 discord:
   enabled: false
   client_id: ""      # from an application you create at discord.com/developers
   client_secret: ""
+  volume_conversion: true
 ```
+
+Discord `volume_conversion` applies only to participant targets (`deej.discord:<user>`): true sends `position³ × 100` to match Discord's displayed curve, while false sends `position × 100`. The input and output targets always use the linear 0–100 scale.
 
 The config can be edited by hand (hot-reloaded) or through the settings GUI, which writes the same file.
 

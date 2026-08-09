@@ -142,10 +142,11 @@ func isYAMLTypeError(err error) bool {
 
 // OBSSettings describes the OBS websocket connection parameters
 type OBSSettings struct {
-	Enabled  bool   `yaml:"enabled" json:"enabled"`
-	Host     string `yaml:"host" json:"host"`
-	Port     int    `yaml:"port" json:"port"`
-	Password string `yaml:"password" json:"password"`
+	Enabled          bool   `yaml:"enabled" json:"enabled"`
+	Host             string `yaml:"host" json:"host"`
+	Port             int    `yaml:"port" json:"port"`
+	Password         string `yaml:"password" json:"password"`
+	VolumeConversion bool   `yaml:"volume_conversion" json:"volumeConversion"`
 }
 
 // DiscordSettings describes the Discord RPC integration. deej can't ship
@@ -154,9 +155,10 @@ type OBSSettings struct {
 // its ID and secret here. The OAuth token that comes out of linking is not
 // kept here - it lives in its own file next to the config (see discord.go)
 type DiscordSettings struct {
-	Enabled      bool   `yaml:"enabled" json:"enabled"`
-	ClientID     string `yaml:"client_id" json:"clientId"`
-	ClientSecret string `yaml:"client_secret" json:"clientSecret"`
+	Enabled          bool   `yaml:"enabled" json:"enabled"`
+	ClientID         string `yaml:"client_id" json:"clientId"`
+	ClientSecret     string `yaml:"client_secret" json:"clientSecret"`
+	VolumeConversion bool   `yaml:"volume_conversion" json:"volumeConversion"`
 }
 
 func defaultSettings() Settings {
@@ -177,8 +179,13 @@ func defaultSettings() Settings {
 		},
 
 		OBS: OBSSettings{
-			Host: "localhost",
-			Port: 4455,
+			Host:             "localhost",
+			Port:             4455,
+			VolumeConversion: true,
+		},
+		Discord: DiscordSettings{
+			// Preserve Discord's displayed volume curve unless explicitly disabled.
+			VolumeConversion: true,
 		},
 	}
 }

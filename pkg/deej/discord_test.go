@@ -138,20 +138,22 @@ func TestDiscordVolume(t *testing.T) {
 func TestDiscordUserVolume(t *testing.T) {
 	cases := []struct {
 		percent float32
+		convert bool
 		want    float64
 	}{
-		{0, 0},
-		{0.01, 0.0001},
-		{0.02, 0.0008},
-		{0.5, 12.5},
-		{1, 100},
-		{-1, 0}, // clamped
-		{2, 100},
+		{0, true, 0},
+		{0.01, true, 0.0001},
+		{0.02, true, 0.0008},
+		{0.5, true, 12.5},
+		{1, true, 100},
+		{0.5, false, 50},
+		{-1, false, 0}, // clamped
+		{2, false, 100},
 	}
 
 	for _, testCase := range cases {
-		if got := discordUserVolume(testCase.percent); math.Abs(got-testCase.want) > 1e-9 {
-			t.Errorf("discordUserVolume(%v) = %v, want %v", testCase.percent, got, testCase.want)
+		if got := discordUserVolume(testCase.percent, testCase.convert); math.Abs(got-testCase.want) > 1e-9 {
+			t.Errorf("discordUserVolume(%v, %v) = %v, want %v", testCase.percent, testCase.convert, got, testCase.want)
 		}
 	}
 }
@@ -448,6 +450,9 @@ func TestDiscordReplayMappedSliderValues(t *testing.T) {
 
 func TestNormalizeDiscordRequiresCredentials(t *testing.T) {
 	settings := defaultSettings()
+	if !settings.Discord.VolumeConversion {
+		t.Fatal("volume conversion should default on for configs without the new key")
+	}
 	settings.Discord = DiscordSettings{Enabled: true}
 
 	problems := settings.normalize()

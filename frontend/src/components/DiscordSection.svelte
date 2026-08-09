@@ -112,6 +112,15 @@
   <div class="hint mt-2">{m.discordHint()}</div>
 
   {#if draft.enabled}
+    <div class="mt-3">
+      <FieldCheckbox
+        id="discord-volume-conversion"
+        bind:checked={draft.volumeConversion}
+        label={m.discordVolumeConversion()}
+      />
+      <div class="hint mt-1">{m.discordVolumeConversionHint()}</div>
+    </div>
+
     <div class="hint mt-3">
       <ParaglideMessage message={m.discordSetupHint}>
         {#snippet developerPortal({ children })}
@@ -126,7 +135,7 @@
         {#snippet localhost({ children })}
           <button
             type="button"
-            class="inline-flex items-center gap-1 font-medium text-body underline underline-offset-2 active:text-muted"
+            class="inline-flex cursor-pointer items-center gap-1 font-mono font-medium text-body active:text-muted"
             onclick={copyLocalhost}
             title={m.copyLocalhost()}
             aria-label={m.copyLocalhost()}
