@@ -11,6 +11,7 @@ try {
   // locale before mount. reload: false — there's no server or in-app reload.
   const locale = appInfo.resolvedLanguage.toLowerCase().startsWith("ru") ? "ru" : "en";
   setLocale(locale, { reload: false });
+  document.documentElement.dataset.platform = appInfo.platform;
 } catch (err) {
   console.error("failed to load app info", err);
 }

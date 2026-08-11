@@ -41,6 +41,7 @@ type AppInfoDTO struct {
 	Version            string   `json:"version"`
 	ConfigPath         string   `json:"configPath"`
 	ResolvedLanguage   string   `json:"resolvedLanguage"`
+	Platform           string   `json:"platform"`
 	SpecialTargets     []string `json:"specialTargets"`
 	AutostartAvailable bool     `json:"autostartAvailable"`
 }
@@ -84,6 +85,7 @@ func (s *SettingsService) GetAppInfo() AppInfoDTO {
 		Version:          s.d.version,
 		ConfigPath:       s.d.config.configPath,
 		ResolvedLanguage: s.d.resolvedLanguage,
+		Platform:         runtime.GOOS,
 		SpecialTargets: []string{
 			masterSessionName,
 			systemSessionName,

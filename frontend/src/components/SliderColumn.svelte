@@ -64,7 +64,7 @@
         {#if targets.length === 0}
           <span class="wrap-break-word">{m.unmapped()}</span>
         {:else}
-          <span class="line-clamp-2 wrap-break-word">{targetLabel(targets[0])}</span>
+          <span class="min-w-0 w-full max-w-full line-clamp-2 wrap-break-word">{targetLabel(targets[0])}</span>
           {#if targets.length > 1}
             <span class="text-muted">+{targets.length - 1}</span>
           {/if}

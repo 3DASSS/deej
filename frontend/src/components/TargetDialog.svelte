@@ -354,10 +354,10 @@
         <div class="flex max-h-24 shrink-0 flex-wrap gap-1.5 overflow-y-auto">
           {#each targets as target (target)}
             <span
-              class="inline-flex items-center gap-1 rounded-full border border-edge bg-chip py-0.5 pr-1.5 pl-2.5 text-xs"
+              class="inline-flex max-w-full items-center gap-1 rounded-full border border-edge bg-chip py-0.5 pr-1.5 pl-2.5 text-xs"
               title={target}
             >
-              {targetLabel(target)}
+              <span class="min-w-0 wrap-break-word">{targetLabel(target)}</span>
               <button
                 type="button"
                 class="rounded-full p-0.5 text-muted hover:text-danger"

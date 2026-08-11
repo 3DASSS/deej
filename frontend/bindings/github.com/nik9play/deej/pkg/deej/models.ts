@@ -12,6 +12,7 @@ export class AppInfoDTO {
     "version": string;
     "configPath": string;
     "resolvedLanguage": string;
+    "platform": string;
     "specialTargets": string[];
     "autostartAvailable": boolean;
 
@@ -25,6 +26,9 @@ export class AppInfoDTO {
         }
         if (!("resolvedLanguage" in $$source)) {
             this["resolvedLanguage"] = "";
+        }
+        if (!("platform" in $$source)) {
+            this["platform"] = "";
         }
         if (!("specialTargets" in $$source)) {
             this["specialTargets"] = [];
@@ -40,10 +44,10 @@ export class AppInfoDTO {
      * Creates a new AppInfoDTO instance from a string or object.
      */
     static createFrom($$source: any = {}): AppInfoDTO {
-        const $$createField3_0 = $$createType0;
+        const $$createField4_0 = $$createType0;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("specialTargets" in $$parsedSource) {
-            $$parsedSource["specialTargets"] = $$createField3_0($$parsedSource["specialTargets"]);
+            $$parsedSource["specialTargets"] = $$createField4_0($$parsedSource["specialTargets"]);
         }
         return new AppInfoDTO($$parsedSource as Partial<AppInfoDTO>);
     }
