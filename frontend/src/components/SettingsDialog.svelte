@@ -149,7 +149,7 @@
             {#each tabItems as tabItem (tabItem.value)}
               <Tabs.Trigger
                 value={tabItem.value}
-                class="flex items-center gap-2 rounded-md px-3 py-2 text-left text-sm text-muted transition-colors hover:bg-chip hover:text-body data-[state=active]:bg-chip data-[state=active]:text-body"
+                class="flex items-center gap-2 rounded-md px-3 py-2 text-left text-sm text-muted hover:bg-chip hover:text-body data-[state=active]:bg-chip data-[state=active]:text-body"
               >
                 {#if tabItem.value === "obs"}
                   <SimpleIcon name="obs" size={15} />

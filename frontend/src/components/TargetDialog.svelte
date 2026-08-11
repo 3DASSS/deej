@@ -313,7 +313,7 @@
 {#snippet itemRow(target: string, label: string, hint: string, dimmed: boolean = false, icon: string | typeof Speaker | undefined = undefined)}
   <button
     type="button"
-    class="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm transition-colors hover:bg-chip {dimmed && !isSelected(target) ? 'opacity-60 hover:opacity-100' : ''}"
+    class="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-chip {dimmed && !isSelected(target) ? 'opacity-60 hover:opacity-100' : ''}"
     onclick={() => toggle(target)}
   >
     {#if typeof icon === "string"}
@@ -378,7 +378,7 @@
             {#each [{ value: "apps", label: m.tabApps(), Icon: AppWindow }, { value: "devices", label: m.tabDevices(), Icon: Speaker }, { value: "special", label: m.tabSpecial(), Icon: Sparkles }, { value: "obs", label: m.tabObs(), Icon: null }, { value: "discord", label: m.tabDiscord(), Icon: null }] as tabItem (tabItem.value)}
               <Tabs.Trigger
                 value={tabItem.value}
-                class="-mb-px flex items-center gap-1.5 border-b-2 border-transparent px-2.5 py-1.5 text-sm text-muted transition-colors hover:text-body data-[state=active]:border-accent data-[state=active]:text-body"
+                class="-mb-px flex items-center gap-1.5 border-b-2 border-transparent px-2.5 py-1.5 text-sm text-muted hover:text-body data-[state=active]:border-accent data-[state=active]:text-body"
               >
                 {#if tabItem.value === "obs"}
                   <SimpleIcon name="obs" size={14} />
@@ -409,7 +409,7 @@
               {#if freeText !== ""}
                 <button
                   type="button"
-                  class="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm text-accent transition-colors hover:bg-chip"
+                  class="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm text-accent hover:bg-chip"
                   onclick={addFreeText}
                 >
                   <Plus size={14} class="shrink-0" />
@@ -488,7 +488,7 @@
                 {#if obsFreeText !== ""}
                   <button
                     type="button"
-                    class="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm text-accent transition-colors hover:bg-chip"
+                    class="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm text-accent hover:bg-chip"
                     onclick={addObsFreeText}
                   >
                     <Plus size={14} class="shrink-0" />
@@ -536,7 +536,7 @@
                 {#if discordFreeText !== ""}
                   <button
                     type="button"
-                    class="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm text-accent transition-colors hover:bg-chip"
+                    class="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm text-accent hover:bg-chip"
                     onclick={addDiscordFreeText}
                   >
                     <Plus size={14} class="shrink-0" />

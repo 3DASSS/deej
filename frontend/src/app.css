@@ -102,7 +102,8 @@
 
 @layer components {
   .input {
-    @apply w-full rounded-md border border-edge bg-field px-2.5 py-1.5 text-sm text-body focus-visible:outline-2 focus-visible:outline-accent/80;
+    @apply w-full rounded-md border border-edge bg-field px-2.5 py-1.5 text-sm text-body
+      focus-visible:border-accent focus-visible:ring-[3px] focus-visible:ring-accent/20 focus-visible:outline-none;
   }
 
   .label {
@@ -113,31 +114,35 @@
     @apply text-xs text-muted;
   }
 
-  /* macOS-style secondary button: semitransparent white/grey gradient with a
-     bright top highlight. borderless; instant hover/press, no transition. */
+  /* macOS-style secondary button: a uniform border plus a rounded overlay
+     whose faint directional shadow supplies the edge highlight. */
   .btn {
-    @apply rounded-md bg-linear-to-b from-white/90 to-neutral-100/70 px-3.5 py-1.5 text-sm font-medium text-body
-      shadow-[inset_0_1px_0_rgb(255_255_255/0.9),0_1px_2px_rgb(0_0_0/0.12)]
-      enabled:hover:from-white enabled:hover:to-neutral-200/80
-      enabled:active:from-neutral-100/90 enabled:active:to-neutral-200/90
-      focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-50
-      dark:from-white/10 dark:to-white/5
-      dark:shadow-[inset_0_1px_0_rgb(255_255_255/0.2),0_1px_2px_rgb(0_0_0/0.45)]
-      dark:enabled:hover:from-white/20 dark:enabled:hover:to-white/10
+    @apply relative rounded-lg border border-edge/40 bg-linear-to-b from-white/65 to-neutral-100/45 px-3.5 py-1.5 text-sm font-medium text-body
+      shadow-[0_1px_2px_rgb(0_0_0/0.12)]
+      before:pointer-events-none before:absolute before:inset-0 before:rounded-[calc(0.5rem-1px)]
+      before:shadow-[0_1px_0_rgb(0_0_0/0.08)]
+      enabled:hover:from-white/55 enabled:hover:to-neutral-200/35
+      enabled:active:from-neutral-100/60 enabled:active:to-neutral-200/65
+      enabled:active:before:shadow-none focus-visible:outline-2 focus-visible:outline-accent focus-visible:before:shadow-none disabled:opacity-50
+      dark:from-white/7 dark:to-white/3 dark:before:shadow-[0_-1px_0_rgb(255_255_255/0.18)]
+      dark:shadow-[0_1px_2px_rgb(0_0_0/0.45)]
+      dark:enabled:hover:from-white/10 dark:enabled:hover:to-white/5
       dark:enabled:active:from-white/5 dark:enabled:active:to-white/5;
   }
 
   /* monochrome accent: near-black in light mode, near-white in dark mode */
   .btn-primary {
-    @apply bg-linear-to-b from-neutral-700 to-neutral-900 font-semibold text-on-accent
-      shadow-[inset_0_1px_0_rgb(255_255_255/0.25),0_1px_2px_rgb(0_0_0/0.35)]
-      enabled:hover:from-neutral-600 enabled:hover:to-neutral-800
-      enabled:active:from-neutral-900 enabled:active:to-neutral-900
+    @apply border-neutral-900/65 bg-linear-to-b from-neutral-700/90 to-neutral-900/90 font-semibold text-on-accent
+      shadow-[0_1px_2px_rgb(0_0_0/0.35)]
+      before:shadow-[0_-1px_0_rgb(255_255_255/0.18)]
+      enabled:hover:from-neutral-600/75 enabled:hover:to-neutral-800/75
+      enabled:active:from-neutral-900/90 enabled:active:to-neutral-900/90
       enabled:active:shadow-[inset_0_1px_3px_rgb(0_0_0/0.6)]
-      dark:from-white dark:to-neutral-300
-      dark:shadow-[inset_0_1px_0_rgb(255_255_255/0.9),0_1px_2px_rgb(0_0_0/0.45)]
-      dark:enabled:hover:from-white dark:enabled:hover:to-neutral-200
-      dark:enabled:active:from-neutral-300 dark:enabled:active:to-neutral-400
+      dark:border-neutral-300/65 dark:from-white/90 dark:to-neutral-300/90
+      dark:before:shadow-[0_-1px_0_rgb(255_255_255/0.16)]
+      dark:shadow-[0_1px_2px_rgb(0_0_0/0.45)]
+      dark:enabled:hover:from-white/75 dark:enabled:hover:to-neutral-200/75
+      dark:enabled:active:from-neutral-300/90 dark:enabled:active:to-neutral-400/90
       dark:enabled:active:shadow-[inset_0_1px_3px_rgb(0_0_0/0.25)];
   }
 

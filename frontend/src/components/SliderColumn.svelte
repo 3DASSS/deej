@@ -27,7 +27,7 @@
     aria-valuenow={percent}
     aria-label="{m.slider()} {slider}"
   >
-    <div class="absolute inset-0 overflow-hidden rounded-full bg-track">
+    <div class="absolute inset-0 overflow-hidden rounded-full bg-track/60">
       <div class="slider-ticks absolute inset-x-1.5 inset-y-0 text-body/50"></div>
       <!-- never shorter than its width, so at 0% the fill is a dot resting at
            the bottom and its rounded top cap doubles as the handle -->
@@ -53,9 +53,9 @@
     <Tooltip.Root bind:open={tooltipOpen} ignoreNonKeyboardFocus>
       <Tooltip.Trigger
         type="button"
-        class="flex w-full h-16 flex-col items-center justify-center gap-0.5 rounded-lg border px-3 py-1 text-xs transition-colors {targets.length
-          ? 'border-0 bg-linear-to-b from-white/90 to-neutral-100/70 shadow-[inset_0_1px_0_rgb(255_255_255/0.9),0_1px_2px_rgb(0_0_0/0.1)] hover:from-white hover:to-neutral-200/80 dark:from-white/10 dark:to-white/5 dark:shadow-[inset_0_1px_0_rgb(255_255_255/0.15),0_1px_2px_rgb(0_0_0/0.45)] dark:hover:from-white/20 dark:hover:to-white/10'
-          : 'border-dashed border-edge text-muted hover:bg-chip'}"
+        class="flex h-16 w-full flex-col items-center justify-center gap-0.5 px-3 py-1 text-xs font-normal {targets.length
+          ? 'btn rounded-xl before:rounded-[calc(0.75rem-1px)]'
+          : 'rounded-xl border border-dashed border-edge text-muted transition-colors hover:bg-chip'}"
         onclick={() => {
           tooltipOpen = false;
           onEdit();
@@ -73,8 +73,9 @@
       {#if targets.length > 0}
         <Tooltip.Portal>
           <Tooltip.Content
+            side="bottom"
             sideOffset={6}
-            class="anim-popover z-50 max-w-56 rounded-md border border-edge bg-surface px-2.5 py-1.5 text-xs shadow-lg"
+            class="anim-popover z-50 w-max max-w-[calc(100vw-1rem)] rounded-md border border-edge bg-surface px-2.5 py-1.5 text-xs shadow-lg"
           >
             <div class="flex flex-col gap-0.5">
               {#each targets as target (target)}
