@@ -55,6 +55,11 @@
   let statusKind: "ok" | "error" = $state("ok");
   let saving = $state(false);
   let statusTimer: ReturnType<typeof setTimeout>;
+  let saveTimer: ReturnType<typeof setTimeout>;
+  let pendingPatch: Partial<Settings> = {};
+  let dialogWasOpen = false;
+
+  const saveDelay = 400;
 
   const comDirty = $derived(
     !!settings && !!comDraft && JSON.stringify(comDraft) !== JSON.stringify(settings.com),
@@ -79,7 +84,13 @@
   // re-arm the drafts every time the dialog opens; later config refreshes
   // deliberately leave them alone so they don't overwrite pending edits
   $effect(() => {
-    if (!open) return;
+    if (!open) {
+      if (dialogWasOpen) void flushSave();
+      dialogWasOpen = false;
+      return;
+    }
+
+    dialogWasOpen = true;
 
     if (!ready) {
       void refreshSettings();
@@ -95,7 +106,10 @@
     });
   });
 
-  onDestroy(() => clearTimeout(statusTimer));
+  onDestroy(() => {
+    clearTimeout(statusTimer);
+    void flushSave();
+  });
 
   function showStatus(text: string, kind: "ok" | "error") {
     statusText = text;
@@ -109,18 +123,44 @@
     }
   }
 
-  // patch the given fields onto the current config and write the result. A
-  // rejected save leaves the section's draft untouched, so the bad value stays
-  // on screen (and dirty) instead of being silently dropped or retried
-  async function save(patch: Partial<Settings>) {
+  // Merge patches so separate controls changed during the debounce window are
+  // persisted together instead of only retaining the final call. Apply the
+  // patch locally first so profile buttons and hotkeys respond immediately.
+  function save(patch: Partial<Settings>) {
     if (!settings) return;
 
+    const snapshot = $state.snapshot(patch);
+    Object.assign(settings, snapshot);
+    Object.assign(pendingPatch, snapshot);
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(() => void flushSave(), saveDelay);
+  }
+
+  async function flushSave() {
+    clearTimeout(saveTimer);
+    if (!settings || Object.keys(pendingPatch).length === 0) return;
+
+    // Do not overlap whole-document writes. A change made during this write
+    // remains pending and is tried again after the same debounce interval.
+    if (saving) {
+      saveTimer = setTimeout(() => void flushSave(), saveDelay);
+      return;
+    }
+
+    const patch = pendingPatch;
+    pendingPatch = {};
     saving = true;
     try {
       await SettingsService.SaveSettings(Object.assign($state.snapshot(settings), patch));
       showStatus(m.saved(), "ok");
     } catch (err) {
       showStatus(`${m.saveError()}: ${err}`, "error");
+      // Undo the optimistic update while leaving section drafts intact, so a
+      // rejected explicit save becomes dirty again and can be corrected. Keep
+      // any newer patch that was queued while this write was in flight.
+      const stillPending = $state.snapshot(pendingPatch);
+      await refreshSettings();
+      if (settings) Object.assign(settings, stillPending);
     } finally {
       saving = false;
     }

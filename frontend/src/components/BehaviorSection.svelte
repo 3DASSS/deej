@@ -4,8 +4,8 @@
   import FieldCheckbox from "./ui/FieldCheckbox.svelte";
   import FieldSelect from "./ui/FieldSelect.svelte";
 
-  // these settings are cheap to apply, so they're written as soon as they
-  // change instead of behind a save button
+  // these settings are cheap to apply, so they're auto-saved shortly after
+  // they change instead of being placed behind a save button
   let { settings, onsave }: { settings: Settings; onsave: (patch: Partial<Settings>) => void } = $props();
 
   const noiseItems = $derived([
