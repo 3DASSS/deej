@@ -24,7 +24,7 @@ FRONTEND_DEVSERVER_URL=http://127.0.0.1:9245 ./build/deej-dev
 The TypeScript bindings in `bindings/` are generated from the Go `SettingsService` and are committed, so plain `go build` and CI never need the generator. Regenerate them after changing the service surface:
 
 ```
-go run github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0-alpha2.117 generate bindings -ts -clean -d frontend/bindings ./pkg/deej
+go run github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0-beta.7 generate bindings -ts -clean -d frontend/bindings ./pkg/deej
 ```
 
 Keep the CLI version pinned to the `github.com/wailsapp/wails/v3` version in `go.mod`.
