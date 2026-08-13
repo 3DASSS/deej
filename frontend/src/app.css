@@ -14,7 +14,12 @@
   --ui-success: #171717;
   --ui-field: #ffffff;
   --ui-chip: #f0f0f0;
-  --ui-track: #e4e4e4;
+  --ui-track: #e5e5e5;
+  --slider-fill-surface: #323232;
+  --slider-handle-surface: #dfdfdf;
+  --slider-handle-edge: rgb(0 0 0 / 0.35);
+  --slider-handle-highlight: rgb(255, 255, 255);
+  --slider-handle-shadow: rgb(0 0 0 / 0.42);
   --app-font-sans: sans-serif;
 
   color-scheme: light dark;
@@ -38,6 +43,15 @@
     --ui-field: #0f0f0f;
     --ui-chip: #1e1e1e;
     --ui-track: #262626;
+    --slider-track-shadow: rgb(0 0 0 / 0.45);
+    --slider-track-deep-shadow: rgb(0 0 0 / 0.35);
+    --slider-fill-highlight: rgb(255 255 255 / 0.62);
+    --slider-fill-shadow: rgb(0 0 0 / 0.34);
+    --slider-fill-surface: #dedede;
+    --slider-handle-surface: #272727;
+    --slider-handle-edge: rgb(0 0 0 / 0.75);
+    --slider-handle-highlight: rgb(255 255 255 / 0.48);
+    --slider-handle-shadow: rgb(0 0 0 / 0.7);
   }
 }
 
@@ -124,7 +138,7 @@
       enabled:hover:from-white/55 enabled:hover:to-neutral-200/35
       enabled:active:from-neutral-100/60 enabled:active:to-neutral-200/65
       enabled:active:before:shadow-none focus-visible:outline-2 focus-visible:outline-accent focus-visible:before:shadow-none disabled:opacity-50
-      dark:from-white/7 dark:to-white/3 dark:before:shadow-[0_-1px_0_rgb(255_255_255/0.18)]
+      dark:from-white/7 dark:to-white/3 dark:before:shadow-[0_-1px_0_rgb(255_255_255/0.12)]
       dark:shadow-[0_1px_2px_rgb(0_0_0/0.45)]
       dark:enabled:hover:from-white/10 dark:enabled:hover:to-white/5
       dark:enabled:active:from-white/5 dark:enabled:active:to-white/5;
@@ -159,6 +173,29 @@
      currentColor; layered over both the filled and unfilled slider zones */
   .slider-ticks {
     background-image: repeating-linear-gradient(to top, currentColor 0 1px, transparent 1px 10%);
+  }
+
+  /* Layered surfaces make the vertical meters read like small physical
+     faders while keeping the monochrome theme intact. */
+  .slider-track {
+    background: var(--ui-track);
+  }
+
+  .slider-fill {
+    background: var(--slider-fill-surface);
+  }
+
+  /* The cap masks tick marks without adding a gradient beneath the handle. */
+  .slider-fill-cap {
+    background: var(--slider-fill-surface);
+  }
+
+  .slider-handle {
+    border: 1px solid var(--slider-handle-edge);
+    background: var(--slider-handle-surface);
+    box-shadow:
+      inset 0 1px var(--slider-handle-highlight),
+      0 1px 2px var(--slider-handle-shadow);
   }
 }
 

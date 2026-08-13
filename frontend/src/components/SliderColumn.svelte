@@ -27,23 +27,23 @@
     aria-valuenow={percent}
     aria-label="{m.slider()} {slider}"
   >
-    <div class="absolute inset-0 overflow-hidden rounded-full bg-track/60">
+    <div class="slider-track absolute inset-0 overflow-hidden rounded-full">
       <div class="slider-ticks absolute inset-x-1.5 inset-y-0 text-body/50"></div>
       <!-- never shorter than its width, so at 0% the fill is a dot resting at
            the bottom and its rounded top cap doubles as the handle -->
       <div
-        class="absolute right-0 bottom-0 left-0 overflow-hidden rounded-full bg-accent transition-[height] duration-75 ease-linear"
+        class="slider-fill absolute right-0 bottom-0 left-0 overflow-hidden rounded-full transition-[height] duration-75 ease-linear"
         style:height="calc(1.75rem + {percent} / 100 * (100% - 1.75rem))"
       >
         <!-- full-track-height tick layer anchored to the bottom, so the ticks
              stay aligned with the unfilled zone while the fill clips them -->
         <div class="slider-ticks absolute inset-x-1.5 bottom-0 h-52 text-on-accent/50"></div>
         <!-- opaque cover hiding the ticks in the 28px rounded top cap -->
-        <div class="absolute inset-x-0 top-0 h-6 bg-accent"></div>
+        <div class="slider-fill-cap absolute inset-x-0 top-0 h-6"></div>
         <!-- handle dot, centered in the top cap; grey tuned per theme so it
              reads on the black fill (light) and the white fill (dark) -->
         <div
-          class="absolute top-2 left-1/2 size-3 -translate-x-1/2 rounded-full bg-neutral-200 dark:bg-neutral-800"
+          class="slider-handle absolute top-2 left-1/2 size-3 -translate-x-1/2 rounded-full"
         ></div>
       </div>
     </div>
