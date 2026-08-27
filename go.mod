@@ -16,7 +16,7 @@ require (
 	github.com/moutend/go-wca v0.3.0
 	github.com/nicksnyder/go-i18n/v2 v2.6.1
 	github.com/pelletier/go-toml/v2 v2.2.4
-	github.com/wailsapp/wails/v3 v3.0.0-beta.7
+	github.com/wailsapp/wails/v3 v3.0.0-beta.14
 	go.bug.st/serial v1.6.4
 	go.uber.org/zap v1.27.1
 	go.yaml.in/yaml/v3 v3.0.4

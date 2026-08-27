@@ -14,7 +14,7 @@
     "@inlang/paraglide-js": "^2.21.0",
     "@inlang/paraglide-js-svelte": "^1.0.4",
     "@lucide/svelte": "^1.24.0",
-    "@wailsio/runtime": "latest",
+    "@wailsio/runtime": "3.0.0-beta.14",
     "bits-ui": "^2.18.1"
   },
   "devDependencies": {
