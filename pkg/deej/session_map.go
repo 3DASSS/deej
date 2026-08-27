@@ -2,11 +2,12 @@ package deej
 
 import (
 	"fmt"
+	"slices"
+	"sort"
 	"strings"
 	"sync"
 
 	"github.com/nik9play/deej/pkg/deej/util"
-	"github.com/thoas/go-funk"
 	"go.uber.org/zap"
 )
 
@@ -36,6 +37,13 @@ const (
 
 	// obs targets are handled directly via OBS WebSocket API
 	obsTargetPrefix = "deej.obs:"
+
+	// discord targets are handled directly via Discord's local RPC connection.
+	// mapping the discord.exe process covers none of these: they reach inside
+	// Discord rather than at its audio session
+	discordUserTargetPrefix = "deej.discord:"      // one person in the current voice channel
+	discordInputTarget      = "deej.discord.input" // own microphone level
+	discordOutputTarget     = "deej.discord.output"
 
 	// targets the currently active window (Windows-only, experimental)
 	specialTargetCurrentWindow = "current"
@@ -230,13 +238,29 @@ func (m *sessionMap) removeSessionLocked(session Session) {
 	}
 }
 
+// uniqueStrings returns the input without duplicates, preserving order
+func uniqueStrings(in []string) []string {
+	seen := make(map[string]struct{}, len(in))
+	out := make([]string, 0, len(in))
+
+	for _, s := range in {
+		if _, ok := seen[s]; ok {
+			continue
+		}
+		seen[s] = struct{}{}
+		out = append(out, s)
+	}
+
+	return out
+}
+
 // returns true if a session is not currently mapped to any slider, false otherwise
 // special sessions (master, system, mic) and device-specific sessions always count as mapped,
 // even when absent from the config. this makes sense for every current feature that uses "unmapped sessions"
 func (m *sessionMap) sessionMapped(session Session) bool {
 
 	// count master/system/mic as mapped
-	if funk.ContainsString([]string{masterSessionName, systemSessionName, inputSessionName}, session.Key()) {
+	if slices.Contains([]string{masterSessionName, systemSessionName, inputSessionName}, session.Key()) {
 		return true
 	}
 
@@ -245,34 +269,35 @@ func (m *sessionMap) sessionMapped(session Session) bool {
 		return true
 	}
 
-	matchFound := false
-
 	// look through the actual mappings
-	m.deej.config.Values().SliderMapping.iterate(func(_ int, targets []string) {
-		for _, target := range targets {
+	for _, entry := range m.deej.config.Values().ActiveMapping() {
+		for _, target := range entry.Targets {
+			target = strings.ToLower(target)
 
 			// ignore special transforms
 			if m.targetHasSpecialTransform(target) {
 				continue
 			}
 
-			// safe to assume this has a single element because we made sure there's no special transform
-			target = m.resolveTarget(target)[0]
+			resolvedTargets := m.resolveTarget(target)
+			if len(resolvedTargets) == 0 {
+				continue
+			}
+			target = resolvedTargets[0]
 
 			if target == session.Key() {
-				matchFound = true
-				return
+				return true
 			}
 		}
-	})
+	}
 
-	return matchFound
+	return false
 }
 
 func (m *sessionMap) handleSliderMoveEvent(event SliderMoveEvent) {
 
-	// get the targets mapped to this slider from the config
-	targets, ok := m.deej.config.Values().SliderMapping.get(event.SliderID)
+	// get the targets mapped to this slider from the active profile
+	targets, ok := m.deej.config.Values().ActiveMapping().get(event.SliderID)
 
 	// if slider not found in config, silently ignore
 	if !ok {
@@ -323,13 +348,22 @@ func (m *sessionMap) setSessionVolumes(target string, volume float32) {
 }
 
 // applySpecialTargetAction handles targets that control external systems rather than audio sessions
-// (e.g. OBS, and potentially Discord or others in the future).
+// (e.g. OBS and Discord).
 // Returns true if the target was handled, false if it should be treated as a normal audio target.
 func (m *sessionMap) applySpecialTargetAction(target string, volume float32) bool {
+	lowerTarget := strings.ToLower(target)
+	discordKey, isDiscordTarget := discordTargetKey(target)
+
 	switch {
-	case strings.HasPrefix(strings.ToLower(target), obsTargetPrefix):
+	case strings.HasPrefix(lowerTarget, obsTargetPrefix):
 		inputName := target[len(obsTargetPrefix):]
 		m.handleOBSTarget(inputName, volume)
+		return true
+
+	case isDiscordTarget:
+		if m.deej.discord != nil {
+			m.deej.discord.setVolume(discordKey, volume)
+		}
 		return true
 	}
 
@@ -388,8 +422,8 @@ func (m *sessionMap) applyTargetTransform(specialTargetName string) []string {
 			currentWindowProcessNames[targetIdx] = strings.ToLower(target)
 		}
 
-		// remove dupes
-		return funk.UniqString(currentWindowProcessNames)
+		// remove dupes, preserving order
+		return uniqueStrings(currentWindowProcessNames)
 
 	// get currently unmapped sessions
 	case specialTargetAllUnmapped:
@@ -445,6 +479,34 @@ func (m *sessionMap) getSessionCount() int {
 	}
 
 	return count
+}
+
+// sessionInfos returns a sorted copy of the current session keys with
+// friendly display names, used by the settings GUI for target suggestions
+func (m *sessionMap) sessionInfos() []SessionInfoDTO {
+	m.lock.Lock()
+	defer m.lock.Unlock()
+
+	infos := make([]SessionInfoDTO, 0, len(m.m))
+	for key, sessions := range m.m {
+		info := SessionInfoDTO{Key: key}
+		for _, session := range sessions {
+			if session.IsDevice() {
+				info.IsDevice = true
+			}
+			if session.IsInput() {
+				info.IsInput = true
+			}
+			if info.DisplayName == "" {
+				info.DisplayName = session.DisplayName()
+			}
+		}
+		infos = append(infos, info)
+	}
+
+	sort.Slice(infos, func(i, j int) bool { return infos[i].Key < infos[j].Key })
+
+	return infos
 }
 
 func (m *sessionMap) String() string {

@@ -3,6 +3,7 @@ package deej
 import (
 	"errors"
 	"fmt"
+	"sort"
 	"time"
 
 	"github.com/andreykaipov/goobs"
@@ -18,7 +19,7 @@ const obsRetryDelay = 5 * time.Second
 // was dialed with so config reloads can detect parameter changes
 type obsConn struct {
 	client *goobs.Client
-	cfg    OBSConfig
+	cfg    OBSSettings
 }
 
 type OBSClient struct {
@@ -38,7 +39,7 @@ func NewOBSClient(deej *Deej, logger *zap.SugaredLogger) *OBSClient {
 
 	o.reconnector = reconnect.New(reconnect.Options[obsConn]{
 		Logger:  logger,
-		Enabled: func() bool { return o.deej.config.Values().OBSConfig.Enabled },
+		Enabled: func() bool { return o.deej.config.Values().OBS.Enabled },
 		Dial:    o.dial,
 		Watch:   o.watch,
 		Close:   o.close,
@@ -71,10 +72,15 @@ func (o *OBSClient) IsConnected() bool {
 }
 
 // obsVolumeMulFromPercent converts a 0.0-1.0 slider position to an OBS volume
-// multiplier using the cubic curve OBS's own mixer faders use
-func obsVolumeMulFromPercent(percent float32) float64 {
-	p := float64(percent)
-	return p * p * p
+// multiplier. Conversion uses the cubic curve OBS's own mixer faders use;
+// when disabled, the physical slider maps linearly to the multiplier.
+func obsVolumeMulFromPercent(percent float32, convert bool) float64 {
+	position := min(max(float64(percent), 0), 1)
+	if convert {
+		return position * position * position
+	}
+
+	return position
 }
 
 func (o *OBSClient) SetInputVolume(inputName string, percent float32) error {
@@ -83,7 +89,8 @@ func (o *OBSClient) SetInputVolume(inputName string, percent float32) error {
 		return fmt.Errorf("not connected to OBS")
 	}
 
-	vol := obsVolumeMulFromPercent(percent)
+	convert := o.deej.config.Values().OBS.VolumeConversion
+	vol := obsVolumeMulFromPercent(percent, convert)
 	_, err := conn.client.Inputs.SetInputVolume(&inputs.SetInputVolumeParams{
 		InputName:      &inputName,
 		InputVolumeMul: &vol,
@@ -98,9 +105,32 @@ func (o *OBSClient) SetInputVolume(inputName string, percent float32) error {
 	return nil
 }
 
+// ListInputs returns the sorted names of all inputs in the connected OBS
+// instance, used by the settings GUI for target suggestions
+func (o *OBSClient) ListInputs() ([]string, error) {
+	conn, ok := o.reconnector.Current()
+	if !ok {
+		return nil, errors.New("not connected to OBS")
+	}
+
+	resp, err := conn.client.Inputs.GetInputList()
+	if err != nil {
+		return nil, fmt.Errorf("get OBS input list: %w", err)
+	}
+
+	names := make([]string, 0, len(resp.Inputs))
+	for _, input := range resp.Inputs {
+		names = append(names, input.InputName)
+	}
+
+	sort.Strings(names)
+
+	return names, nil
+}
+
 func (o *OBSClient) onUp(conn obsConn) {
 	// re-check the snapshot now that the connection is adopted
-	if o.deej.config.Values().OBSConfig != conn.cfg {
+	if o.deej.config.Values().OBS != conn.cfg {
 		o.logger.Debug("OBS config changed while connecting, triggering reconnect")
 		o.reconnector.Reconnect(errors.New("config changed during dial"))
 		return
@@ -112,7 +142,7 @@ func (o *OBSClient) onUp(conn obsConn) {
 // dial connects to OBS using the current config without touching any client
 // state - the reconnector decides whether to adopt the returned connection
 func (o *OBSClient) dial() (obsConn, error) {
-	cfg := o.deej.config.Values().OBSConfig
+	cfg := o.deej.config.Values().OBS
 	address := fmt.Sprintf("%s:%d", cfg.Host, cfg.Port)
 
 	o.logger.Debugw("Attempting OBS connection", "address", address)
@@ -162,7 +192,7 @@ func (o *OBSClient) setupOnConfigReload() {
 				continue
 			}
 
-			cfg := o.deej.config.Values().OBSConfig
+			cfg := o.deej.config.Values().OBS
 
 			if cfg != conn.cfg {
 				o.logger.Debug("OBS config changed, triggering reconnect")

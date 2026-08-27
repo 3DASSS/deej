@@ -69,6 +69,24 @@ other = "Редактировать файл конфигурации"
 hash = "sha1-8139ad1d0afcd3f4a2d34b1cafb1c4a1e8a51825"
 other = "Редактировать конфигурацию"
 
+[OpenSettingsDescription]
+other = "Открыть окно настроек"
+
+[OpenSettingsTitle]
+other = "Открыть настройки"
+
+[ProfileSwitchedDescription]
+other = "Профиль {{.Profile}} активен."
+
+[ProfileSwitchedTitle]
+other = "Профиль переключён"
+
+[ProfilesDescription]
+other = "Переключить активную раскладку слайдеров"
+
+[ProfilesTitle]
+other = "Профили"
+
 [QuitDescription]
 hash = "sha1-2683afe6d5eb3d1a51548bd95d2ea0af240e381f"
 other = "Остановить deej и выйти"

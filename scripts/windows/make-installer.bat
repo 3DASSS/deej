@@ -1,20 +1,19 @@
 @ECHO OFF
 
-SET "DEEJ_ROOT=%~dp0..\.."
+REM Thin wrapper around the Task build system (see Taskfile.yml). Builds the
+REM release exe and the Inno Setup installer via `windows:package`. Prefers the
+REM standalone `task` CLI and falls back to the copy bundled with wails3.
 
-IF NOT EXIST "%DEEJ_ROOT%\build\deej-release.exe" (
-    ECHO build\deej-release.exe not found! Run scripts\windows\build-release.bat first.
-    EXIT /B 1
+SET "DEEJ_ROOT=%~dp0..\.."
+PUSHD "%DEEJ_ROOT%"
+
+WHERE task >NUL 2>&1
+IF %ERRORLEVEL%==0 (
+    task windows:package
+) ELSE (
+    wails3 task windows:package
 )
 
-FOR /f "delims=" %%a IN ('git rev-list -1 --abbrev-commit HEAD') DO @SET GIT_COMMIT=%%a
-FOR /f "delims=" %%a IN ('git describe --tags --always') DO @SET VERSION_TAG=%%a
-
-SET VERSION=%GIT_COMMIT%-%VERSION_TAG%
-
-ECHO Building installer
-ECHO - gitCommit %GIT_COMMIT%
-ECHO - versionTag %VERSION_TAG%
-
-ISCC /O"%DEEJ_ROOT%\build" "/DAppVersion=%VERSION_TAG%" /Qp "%DEEJ_ROOT%\scripts\windows\installer.iss"
-ECHO Installer successfully built
+SET "BUILD_ERR=%ERRORLEVEL%"
+POPD
+EXIT /B %BUILD_ERR%

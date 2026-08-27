@@ -347,7 +347,7 @@ func (sf *wcaSessionFinder) createDeviceManager(device *wca.IMMDevice) error {
 	}
 
 	// Create device master session
-	deviceMasterSession, err := sf.createDeviceMasterSession(device)
+	deviceMasterSession, err := sf.createDeviceMasterSession(device, isOutput)
 	if err != nil {
 		sf.logger.Warnw("Failed to create device master session", "deviceID", deviceIDStr, "error", err)
 	} else {
@@ -632,7 +632,7 @@ func (sf *wcaSessionFinder) cleanup() {
 	}
 }
 
-func (sf *wcaSessionFinder) createDeviceMasterSession(device *wca.IMMDevice) (*masterSession, error) {
+func (sf *wcaSessionFinder) createDeviceMasterSession(device *wca.IMMDevice, isOutput bool) (*masterSession, error) {
 	// Get device properties for friendly name
 	var propertyStore *wca.IPropertyStore
 	if err := device.OpenPropertyStore(wca.STGM_READ, &propertyStore); err != nil {
@@ -651,7 +651,7 @@ func (sf *wcaSessionFinder) createDeviceMasterSession(device *wca.IMMDevice) (*m
 	}
 	endpointFriendlyName := value.String()
 
-	master, err := sf.getMasterSession(device, endpointFriendlyName, fmt.Sprintf(deviceSessionFormat, endpointDescription))
+	master, err := sf.getMasterSession(device, endpointFriendlyName, fmt.Sprintf(deviceSessionFormat, endpointDescription), isOutput)
 	if err != nil {
 		return nil, err
 	}
@@ -660,14 +660,14 @@ func (sf *wcaSessionFinder) createDeviceMasterSession(device *wca.IMMDevice) (*m
 	return master, nil
 }
 
-func (sf *wcaSessionFinder) getMasterSession(mmDevice *wca.IMMDevice, key string, loggerKey string) (*masterSession, error) {
+func (sf *wcaSessionFinder) getMasterSession(mmDevice *wca.IMMDevice, key string, loggerKey string, isOutput bool) (*masterSession, error) {
 	var audioEndpointVolume *wca.IAudioEndpointVolume
 
 	if err := mmdActivateWorkaround(mmDevice, wca.IID_IAudioEndpointVolume, wca.CLSCTX_ALL, nil, &audioEndpointVolume); err != nil {
 		return nil, fmt.Errorf("activate AudioEndpointVolume: %w", err)
 	}
 
-	master, err := newMasterSession(sf.sessionLogger, audioEndpointVolume, sf.eventCtx, key, loggerKey)
+	master, err := newMasterSession(sf.sessionLogger, audioEndpointVolume, sf.eventCtx, key, loggerKey, isOutput)
 	if err != nil {
 		audioEndpointVolume.Release()
 		return nil, fmt.Errorf("create master session: %w", err)
@@ -757,7 +757,7 @@ func (sf *wcaSessionFinder) refreshMasterOutput() {
 	defer mmOutDevice.Release()
 
 	// Create new master output session
-	masterOut, err := sf.getMasterSession(mmOutDevice, masterSessionName, masterSessionName)
+	masterOut, err := sf.getMasterSession(mmOutDevice, masterSessionName, masterSessionName, true)
 	if err != nil {
 		sf.logger.Warnw("Failed to create new master output session", "error", err)
 		return
@@ -796,7 +796,7 @@ func (sf *wcaSessionFinder) refreshMasterInput() {
 	defer mmInDevice.Release()
 
 	// Create new master input session
-	masterIn, err := sf.getMasterSession(mmInDevice, inputSessionName, inputSessionName)
+	masterIn, err := sf.getMasterSession(mmInDevice, inputSessionName, inputSessionName, false)
 	if err != nil {
 		sf.logger.Warnw("Failed to create new master input session", "error", err)
 		return

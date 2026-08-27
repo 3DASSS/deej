@@ -1,0 +1,46 @@
+# Wails v3 dev-mode config, read by `wails3 dev` (default path: ./build/config.yml).
+#
+# `wails3 dev` picks a Vite port (--port flag > $WAILS_VITE_PORT > 9245), exports
+# WAILS_VITE_PORT and FRONTEND_DEVSERVER_URL, then runs the `executes` below and
+# watches the tree. The deej binary's AssetFileServerFS automatically serves from
+# FRONTEND_DEVSERVER_URL instead of the embedded dist when that var is set, so the
+# settings UI hot-reloads from Vite while Go rebuilds on .go changes.
+#
+# NOTE: build/ is otherwise git-ignored; this one file is un-ignored (see .gitignore).
+version: '3'
+
+dev_mode:
+  root_path: .
+  log_level: warn
+  debounce: 1000
+  ignore:
+    dir:
+      - .git
+      - node_modules
+      - frontend   # frontend changes are handled by Vite, not the Go watcher
+      - build
+      - releases
+    file:
+      - .DS_Store
+      - .gitignore
+      - .gitkeep
+      - "*_test.go"
+    watched_extension:
+      - "*.go"
+    git_ignore: true
+  executes:
+    # 1. start Vite FIRST so its (slow, ~5s) first-run dependency pre-bundle runs
+    #    while the Go build below is compiling. `background` runs once on startup
+    #    and is skipped on reloads, so this head start costs nothing after run #1.
+    #    delay_next holds ~2s before the build starts, guaranteeing deej doesn't
+    #    begin polling until Vite has a head start; Wails' preRun only waits 5s for
+    #    FRONTEND_DEVSERVER_URL before it FATALs, and a cold Vite can just exceed it.
+    - cmd: wails3 task dev:frontend
+      type: background
+      delay_next: 2000
+    # 2. build the dev binary (skips the embedded frontend build)
+    - cmd: wails3 task dev:app:build
+      type: blocking
+    # 3. run deej; inherits FRONTEND_DEVSERVER_URL so the UI loads from Vite
+    - cmd: wails3 task dev:app:run
+      type: primary

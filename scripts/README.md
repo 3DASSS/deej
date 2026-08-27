@@ -19,4 +19,10 @@ This document lists the various scripts in the project and their purposes.
 - [`build-release.sh`](./linux/build-release.sh): Builds deej for releases
 - [`build-all.sh`](./linux/build-all.sh): Helper script to build all variants
 
-The shell scripts honor `GOOS`/`GOARCH` for cross-compilation (e.g. `GOOS=windows GOARCH=arm64 ./scripts/linux/build-release.sh`); the CI workflow uses this to build all platforms on a single Linux runner.
+### Build requirements
+
+All build scripts build the settings GUI frontend first, which requires [Node.js](https://nodejs.org) (see [`frontend/`](../frontend)).
+
+Linux builds use cgo (the [Wails](https://wails.io) GTK backend for the tray and settings window) and need GTK4/WebKitGTK headers, e.g. on Ubuntu 24.04+: `sudo apt-get install libgtk-4-dev libwebkitgtk-6.0-dev`. For older distros that lack `webkitgtk-6.0`, build with `-tags gtk3` and `libgtk-3-dev libwebkit2gtk-4.1-dev` instead.
+
+Windows binaries are cgo-free, so the shell scripts can still cross-compile them (e.g. `GOOS=windows GOARCH=arm64 ./scripts/linux/build-release.sh`). Linux targets must be built natively on a matching architecture; CI uses a native arm64 runner for the arm64 build.

@@ -1,14 +1,43 @@
+//go:build !headless
+
 package deej
 
 import (
+	"io/fs"
+	"log/slog"
+	"maps"
 	"strconv"
 	"strings"
+	"sync"
+	"time"
 
-	"fyne.io/systray"
 	"github.com/nicksnyder/go-i18n/v2/i18n"
+	"github.com/wailsapp/wails/v3/pkg/application"
+	"github.com/wailsapp/wails/v3/pkg/events"
 
+	"github.com/nik9play/deej/frontend"
 	"github.com/nik9play/deej/pkg/deej/util"
 	"github.com/nik9play/deej/pkg/icon"
+)
+
+// trayState holds the wails application that powers the tray icon and settings window
+type trayState struct {
+	app          *application.App
+	shutdownDone chan struct{}
+
+	// guards against concurrent settings window creation
+	settingsLock sync.Mutex
+}
+
+const settingsWindowName = "deej-settings"
+
+// wails events pushed to the settings window
+const (
+	eventSliders  = "deej:sliders"  // []float32, 0..1 per slider
+	eventState    = "deej:state"    // {connected bool, comPort string}
+	eventConfig   = "deej:config"   // no payload; config was (re)applied
+	eventSessions = "deej:sessions" // no payload; audio sessions changed
+	eventDiscord  = "deej:discord"  // no payload; the discord voice roster changed
 )
 
 func getConfigItemText(d *Deej) (string, string) {
@@ -45,6 +74,23 @@ func getSettingsItemText(d *Deej) (string, string) {
 	return configTitle, configDescription
 }
 
+func getOpenSettingsItemText(d *Deej) (string, string) {
+	openSettingsTitle := d.localizer.MustLocalize(&i18n.LocalizeConfig{
+		DefaultMessage: &i18n.Message{
+			ID:    "OpenSettingsTitle",
+			Other: "Open settings",
+		},
+	})
+	openSettingsDescription := d.localizer.MustLocalize(&i18n.LocalizeConfig{
+		DefaultMessage: &i18n.Message{
+			ID:    "OpenSettingsDescription",
+			Other: "Open the settings window",
+		},
+	})
+
+	return openSettingsTitle, openSettingsDescription
+}
+
 func getAutostartItemText(d *Deej) (string, string) {
 	configTitle := d.localizer.MustLocalize(&i18n.LocalizeConfig{
 		DefaultMessage: &i18n.Message{
@@ -60,6 +106,43 @@ func getAutostartItemText(d *Deej) (string, string) {
 	})
 
 	return configTitle, configDescription
+}
+
+func getProfilesItemText(d *Deej) (string, string) {
+	profilesTitle := d.localizer.MustLocalize(&i18n.LocalizeConfig{
+		DefaultMessage: &i18n.Message{
+			ID:    "ProfilesTitle",
+			Other: "Profiles",
+		},
+	})
+	profilesDescription := d.localizer.MustLocalize(&i18n.LocalizeConfig{
+		DefaultMessage: &i18n.Message{
+			ID:    "ProfilesDescription",
+			Other: "Switch the active slider mapping",
+		},
+	})
+
+	return profilesTitle, profilesDescription
+}
+
+func getProfileSwitchedText(d *Deej, name string) (string, string) {
+	switchedTitle := d.localizer.MustLocalize(&i18n.LocalizeConfig{
+		DefaultMessage: &i18n.Message{
+			ID:    "ProfileSwitchedTitle",
+			Other: "Profile switched",
+		},
+	})
+	switchedDescription := d.localizer.MustLocalize(&i18n.LocalizeConfig{
+		DefaultMessage: &i18n.Message{
+			ID:    "ProfileSwitchedDescription",
+			Other: "{{.Profile}} is now active.",
+		},
+		TemplateData: map[string]string{
+			"Profile": name,
+		},
+	})
+
+	return switchedTitle, switchedDescription
 }
 
 func getQuitItemText(d *Deej) (string, string) {
@@ -131,135 +214,305 @@ func getSessionsCountString(d *Deej) string {
 func (d *Deej) initializeTray(onDone func()) {
 	logger := d.logger.Named("tray")
 
-	onReady := func() {
+	d.tray.shutdownDone = make(chan struct{})
+
+	dist, err := fs.Sub(frontend.Dist, "dist")
+	if err != nil {
+		logger.Errorw("Failed to open frontend assets", "error", err)
+	}
+
+	app := application.New(application.Options{
+		Name: "deej",
+		Icon: icon.TrayDeejLogo,
+		// deej sets up its own interrupt handler
+		DisableDefaultSignalHandler: true,
+		// keep running with zero open windows; the tray is the app
+		Windows: application.WindowsOptions{DisableQuitOnLastWindowClosed: true},
+		Linux:   application.LinuxOptions{DisableQuitOnLastWindowClosed: true},
+		Assets:  application.AssetOptions{Handler: application.AssetFileServerFS(dist)},
+		Services: []application.Service{
+			application.NewService(newSettingsService(d)),
+		},
+		PostShutdown: func() {
+			close(d.tray.shutdownDone)
+		},
+		LogLevel: slog.LevelError,
+	})
+	d.tray.app = app
+
+	tray := app.SystemTray.New()
+	tray.SetIcon(icon.TrayDeejLogo)
+	tray.SetTooltip("deej")
+
+	setTooltip := func() {
+		title := "deej\n" + getStatusItemTitle(d)
+		if d.serial.GetState() {
+			title += "\n" + getValuesString(d)
+		}
+		tray.SetTooltip(title)
+	}
+
+	menu := app.NewMenu()
+
+	settingsTitle, _ := getSettingsItemText(d)
+	settings := menu.AddSubmenu(settingsTitle)
+
+	openSettingsTitle, _ := getOpenSettingsItemText(d)
+	settings.Add(openSettingsTitle).OnClick(func(*application.Context) {
+		logger.Info("Open settings menu item clicked, opening settings window")
+
+		d.openSettingsWindow()
+	})
+
+	configTitle, _ := getConfigItemText(d)
+	settings.Add(configTitle).OnClick(func(*application.Context) {
+		logger.Info("Edit config menu item clicked, opening config for editing")
+
+		if err := util.OpenExternal(logger, d.config.configPath); err != nil {
+			logger.Warnw("Failed to open config file for editing", "error", err)
+		}
+	})
+
+	if !util.Linux() {
+		autostartTitle, _ := getAutostartItemText(d)
+		settings.AddCheckbox(autostartTitle, util.GetAutostartState()).OnClick(func(ctx *application.Context) {
+			if err := util.SetAutostartState(ctx.ClickedMenuItem().Checked()); err != nil {
+				logger.Warnw("Failed to set autostart state", "error", err)
+			}
+		})
+	}
+
+	profilesTitle, _ := getProfilesItemText(d)
+	profilesMenu := menu.AddSubmenu(profilesTitle)
+
+	// the profile list follows the config, so the submenu is rebuilt from
+	// scratch on every reload. Menu mutations must run on the wails main thread
+	rebuildProfilesMenu := func() {
+		settings := d.config.Values()
+
+		profilesMenu.Clear()
+		for _, profile := range settings.Profiles {
+			name := profile.Name
+
+			// a tab right-aligns what follows it in a win32 menu, which is how
+			// native menus lay their shortcuts out. SetAccelerator would do the
+			// same, but it also reorders the modifiers and binds the shortcut a
+			// second time whenever a window has focus. On the linux tray the tab
+			// is just whitespace
+			label := name
+			if profile.Hotkey != "" {
+				label += "\t" + profile.Hotkey
+			}
+
+			profilesMenu.AddRadio(label, name == settings.ActiveProfile).OnClick(func(*application.Context) {
+				logger.Infow("Profile menu item clicked, switching profile", "profile", name)
+
+				if err := d.config.SetActiveProfile(name, d.localizer); err != nil {
+					logger.Warnw("Failed to switch profile", "profile", name, "error", err)
+				}
+			})
+		}
+
+		// the tray builds a native menu out of the item tree when it's handed
+		// one, so rebuilding the tree isn't enough - the menu has to be set
+		// again. SetMenu hops to the main thread itself, so this must not run
+		// on it (InvokeSync from the main thread would deadlock)
+		tray.SetMenu(menu)
+	}
+	rebuildProfilesMenu()
+
+	// accelerator -> profile name, as last handed to the OS. Registering before
+	// Run is supported: wails defers the actual binding to application startup
+	profileHotkeys := map[string]string{}
+
+	syncProfileHotkeys := func() {
+		next := map[string]string{}
+		for _, profile := range d.config.Values().Profiles {
+			if profile.Hotkey != "" {
+				next[profile.Hotkey] = profile.Name
+			}
+		}
+
+		// switching profiles reloads the config too, and the hotkey set is
+		// unchanged then - don't churn the OS registrations over it
+		if maps.Equal(profileHotkeys, next) {
+			return
+		}
+
+		if err := app.GlobalShortcut.UnregisterAll(); err != nil {
+			logger.Warnw("Failed to unregister profile hotkeys", "error", err)
+		}
+
+		for hotkey, name := range next {
+			if err := app.GlobalShortcut.Register(hotkey, func() {
+				logger.Infow("Profile hotkey pressed, switching profile", "profile", name)
+
+				if err := d.config.SetActiveProfile(name, d.localizer); err != nil {
+					logger.Warnw("Failed to switch profile", "profile", name, "error", err)
+					return
+				}
+
+				// a global hotkey fires while deej is invisible, so the toast
+				// is the only feedback the user gets
+				d.notifier.Notify(getProfileSwitchedText(d, name))
+			}); err != nil {
+				// usually another application already owns the combination.
+				// The entry stays in the set so an unrelated reload doesn't
+				// retry (and re-churn) it; editing the hotkey does
+				logger.Warnw("Failed to register profile hotkey", "hotkey", hotkey, "profile", name, "error", err)
+			}
+		}
+
+		profileHotkeys = next
+	}
+	syncProfileHotkeys()
+
+	menu.AddSeparator()
+
+	statusInfo := menu.Add(getStatusItemTitle(d)).SetEnabled(false)
+
+	valuesInfo := menu.Add("...").SetEnabled(false).SetHidden(true)
+
+	setValuesInfo := func() {
+		if d.serial.GetState() {
+			valuesInfo.SetLabel(getValuesString(d))
+			valuesInfo.SetHidden(false)
+		} else {
+			valuesInfo.SetHidden(true)
+		}
+	}
+
+	sessionsInfo := menu.Add(getSessionsCountString(d)).SetEnabled(false)
+
+	if d.version != "" {
+		menu.Add(d.version).SetEnabled(false)
+	}
+
+	menu.AddSeparator()
+
+	quitTitle, _ := getQuitItemText(d)
+	menu.Add(quitTitle).OnClick(func(*application.Context) {
+		logger.Info("Quit menu item clicked, stopping")
+
+		d.signalStop()
+	})
+
+	tray.SetMenu(menu)
+
+	tray.OnDoubleClick(func() {
+		d.openSettingsWindow()
+	})
+
+	app.Event.OnApplicationEvent(events.Common.ApplicationStarted, func(*application.ApplicationEvent) {
 		logger.Debug("Tray instance ready")
 
-		systray.SetTemplateIcon(icon.TrayDeejLogo, icon.TrayDeejLogo)
-
-		systray.SetTooltip("deej")
-
-		setTooltip := func() {
-			title := "deej\n" + getStatusItemTitle(d)
-			if d.serial.GetState() {
-				title += "\n" + getValuesString(d)
-			}
-			systray.SetTooltip(title)
-		}
 		setTooltip()
-
-		settingsTitle, settingsDescription := getSettingsItemText(d)
-		settings := systray.AddMenuItem(settingsTitle, settingsDescription)
-		settings.SetIcon(icon.EditConfigIcon)
-
-		configTitle, configDescription := getConfigItemText(d)
-		editConfig := settings.AddSubMenuItem(configTitle, configDescription)
-
-		autostartTitle, autostartDescription := getAutostartItemText(d)
-		autostart := settings.AddSubMenuItemCheckbox(autostartTitle, autostartDescription, util.GetAutostartState())
-
-		if util.Linux() {
-			autostart.Hide()
-		}
-
-		systray.AddSeparator()
-
-		statusInfo := systray.AddMenuItem(getStatusItemTitle(d), "")
-		statusInfo.Disable()
-
-		valuesInfo := systray.AddMenuItem("...", "")
-		valuesInfo.Disable()
-		valuesInfo.Hide()
-
-		setValuesInfo := func() {
-			if d.serial.GetState() {
-				valuesInfo.SetTitle(getValuesString(d))
-				valuesInfo.Show()
-			} else {
-				valuesInfo.Hide()
-			}
-		}
-		setValuesInfo()
-
-		sessionsInfo := systray.AddMenuItem(getSessionsCountString(d), "")
-		sessionsInfo.Disable()
-
-		setSessionsInfo := func() {
-			sessionsInfo.SetTitle(getSessionsCountString(d))
-		}
-
-		if d.version != "" {
-			versionInfo := systray.AddMenuItem(d.version, "")
-			versionInfo.Disable()
-		}
-
-		systray.AddSeparator()
-
-		quitTitle, quitDescription := getQuitItemText(d)
-		quit := systray.AddMenuItem(quitTitle, quitDescription)
 
 		sliderMovedChannel := d.serial.SubscribeToSliderMoveEvents()
 		stateChangeChannel := d.serial.SubscribeToStateChangeEvent()
 		sessionCountChangeChannel := d.sessions.SubscribeToSessionCountChange()
+		configReloadedChannel := d.config.SubscribeToChanges()
+		discordRosterChannel := d.discord.SubscribeToRosterChange()
 
-		// wait on things to happen
+		emitState := func() {
+			app.Event.Emit(eventState, map[string]any{
+				"connected": d.serial.GetState(),
+				"comPort":   d.serial.CurrentComPort(),
+			})
+		}
+
+		// wait on things to happen; menu item mutations must run on the wails main thread
 		go func() {
 			for {
 				select {
 				// slider moved
 				case <-sliderMovedChannel:
 					setTooltip()
-					setValuesInfo()
+					application.InvokeAsync(setValuesInfo)
+					app.Event.Emit(eventSliders, d.serial.CurrentSliderPercentValues())
 
 				// connection state changed
 				case <-stateChangeChannel:
 					setTooltip()
-					setValuesInfo()
-					statusInfo.SetTitle(getStatusItemTitle(d))
+					application.InvokeAsync(func() {
+						setValuesInfo()
+						statusInfo.SetLabel(getStatusItemTitle(d))
+					})
+					emitState()
+					app.Event.Emit(eventSliders, d.serial.CurrentSliderPercentValues())
+
+				// someone joined or left the discord voice channel
+				case <-discordRosterChannel:
+					app.Event.Emit(eventDiscord)
 
 				// session count changed
 				case <-sessionCountChangeChannel:
-					setSessionsInfo()
+					application.InvokeAsync(func() {
+						sessionsInfo.SetLabel(getSessionsCountString(d))
+					})
+					app.Event.Emit(eventSessions)
 
-				// quit
-				case <-quit.ClickedCh:
-					logger.Info("Quit menu item clicked, stopping")
-
-					d.signalStop()
-
-				// edit config
-				case <-editConfig.ClickedCh:
-					logger.Info("Edit config menu item clicked, opening config for editing")
-
-					if err := util.OpenExternal(logger, d.config.configPath); err != nil {
-						logger.Warnw("Failed to open config file for editing", "error", err)
-					}
-
-				case <-autostart.ClickedCh:
-					util.SetAutostartState(!util.GetAutostartState())
-					if util.GetAutostartState() {
-						autostart.Check()
-					} else {
-						autostart.Uncheck()
-					}
-
+				// config applied (GUI save or manual edit)
+				case <-configReloadedChannel:
+					rebuildProfilesMenu()
+					syncProfileHotkeys()
+					app.Event.Emit(eventConfig)
+					emitState()
+					app.Event.Emit(eventSliders, d.serial.CurrentSliderPercentValues())
 				}
 			}
 		}()
 
 		// actually start the main runtime
 		go onDone()
-	}
-
-	onExit := func() {
-		logger.Debug("Tray exited")
-	}
+	})
 
 	// start the tray icon
 	logger.Debug("Running in tray")
-	systray.Run(onReady, onExit)
+	if err := app.Run(); err != nil {
+		logger.Errorw("Wails application exited with error", "error", err)
+	}
+}
+
+// openSettingsWindow creates a fresh settings window, or focuses the existing
+// one if it's already open. The window is fully destroyed when closed
+func (d *Deej) openSettingsWindow() {
+	d.tray.settingsLock.Lock()
+	defer d.tray.settingsLock.Unlock()
+
+	if win, ok := d.tray.app.Window.GetByName(settingsWindowName); ok {
+		win.Restore()
+		win.Focus()
+		return
+	}
+
+	settingsTitle, _ := getSettingsItemText(d)
+
+	d.tray.app.Window.NewWithOptions(application.WebviewWindowOptions{
+		Name:      settingsWindowName,
+		Title:     "deej - " + settingsTitle,
+		Width:     880,
+		Height:    620,
+		MinWidth:  800,
+		MinHeight: 600,
+		Frameless: true,
+		URL:       "/",
+	})
 }
 
 func (d *Deej) stopTray() {
+	if d.tray.app == nil {
+		return
+	}
+
 	d.logger.Debug("Quitting tray")
-	systray.Quit()
+	d.tray.app.Quit()
+
+	// wait for wails to tear down the tray icon and any open windows before
+	// run() exits the process, to avoid leaving a ghost tray icon behind
+	select {
+	case <-d.tray.shutdownDone:
+	case <-time.After(5 * time.Second):
+		d.logger.Warn("Timed out waiting for tray shutdown")
+	}
 }

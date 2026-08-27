@@ -38,6 +38,7 @@ func newPASession(
 	sinkInputIndex uint32,
 	sinkInputChannels byte,
 	processName string,
+	displayName string,
 ) *paSession {
 
 	s := &paSession{
@@ -49,6 +50,7 @@ func newPASession(
 	s.processName = processName
 	s.name = processName
 	s.humanReadableDesc = processName
+	s.displayName = displayName
 
 	// use a self-identifying session name e.g. deej.sessions.chrome
 	s.logger = logger.Named(s.Key())
@@ -91,8 +93,11 @@ func newNamedMasterSession(
 
 	s.logger = logger.Named(name)
 	s.master = true
+	s.input = !isOutput
 	s.name = name
 	s.humanReadableDesc = name
+	// keeps the original casing (Key() lowercases), shown for device sessions
+	s.displayName = name
 
 	s.logger.Debugw(sessionCreationLogMessage, "session", s)
 

@@ -36,10 +36,8 @@ func (tn *ToastNotifier) Notify(title string, message string) {
 }
 
 func (tn *ToastNotifier) createIconFile() (appIconPath string) {
-	fileName := "deej.ico"
-	if util.Linux() {
-		fileName = "deej.png"
-	}
+	// TrayDeejLogo is PNG data on all platforms
+	fileName := "deej.png"
 
 	appIconPath = filepath.Join(os.TempDir(), fileName)
 
