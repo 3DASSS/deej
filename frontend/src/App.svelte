@@ -27,7 +27,11 @@
   }
 </script>
 
-<Titlebar onOpenSettings={() => openSettings()} onOpenProfiles={() => openSettings("profiles")} />
+<Titlebar
+  onOpenSettings={() => openSettings()}
+  onOpenProfiles={() => openSettings("profiles")}
+  onOpenConnection={() => openSettings("connection")}
+/>
 
 <main class="flex-1 overflow-hidden">
   <Mixer onEditTargets={editTargets} />

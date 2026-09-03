@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { Window } from "@wailsio/runtime";
-  import { Select } from "bits-ui";
+  import { Popover, Select } from "bits-ui";
   import Check from "@lucide/svelte/icons/check";
   import ChevronDown from "@lucide/svelte/icons/chevron-down";
   import Layers from "@lucide/svelte/icons/layers";
@@ -14,10 +14,19 @@
   import { m } from "../paraglide/messages";
   import { app } from "../lib/state.svelte";
 
-  let { onOpenSettings, onOpenProfiles }: { onOpenSettings: () => void; onOpenProfiles: () => void } = $props();
+  let {
+    onOpenSettings,
+    onOpenProfiles,
+    onOpenConnection,
+  }: {
+    onOpenSettings: () => void;
+    onOpenProfiles: () => void;
+    onOpenConnection: () => void;
+  } = $props();
 
   let maximised = $state(false);
   let profilesOpen = $state(false);
+  let connectionPopoverOpen = $state(false);
 
   const profiles = $derived(app.settings?.profiles ?? []);
   const profileItems = $derived(profiles.map((profile) => ({ value: profile.name, label: profile.name })));
@@ -93,7 +102,7 @@
                 <Select.Item
                   value={profile.name}
                   label={profile.name}
-                  class="flex items-center justify-between gap-3 rounded px-2 py-1.5 text-sm data-highlighted:bg-chip"
+                  class="flex items-center justify-between gap-3 rounded px-2 py-1.5 text-xs data-highlighted:bg-chip"
                 >
                   {#snippet children({ selected })}
                     <span class="min-w-0 truncate">{profile.name}</span>
@@ -115,7 +124,7 @@
             <div class="my-1 border-t border-edge"></div>
             <button
               type="button"
-              class="flex w-full items-center gap-2 rounded px-2 py-1.5 text-sm text-muted transition-colors hover:bg-chip hover:text-body"
+              class="flex w-full items-center gap-2 rounded px-2 py-1.5 text-xs text-muted transition-colors hover:bg-chip hover:text-body"
               onclick={manage}
             >
               <Settings size={14} class="shrink-0" />
@@ -127,24 +136,50 @@
     </div>
   {/if}
 
-  <span
-    class="ml-auto flex items-center gap-1.5 text-xs text-muted"
-    title={app.connected ? m.connected() : m.disconnected()}
-  >
-    <span
-      class="size-1.5 rounded-full {app.connected ? 'bg-green-500' : 'animate-pulse border border-muted'}"
-    ></span>
-    {#if app.connected}
-      {app.comPort || m.connected()}
-    {:else}
-      {m.disconnected()}
-    {/if}
-  </span>
+  <div class="ml-auto [--wails-draggable:no-drag]">
+    <Popover.Root bind:open={connectionPopoverOpen}>
+      <Popover.Trigger
+        class="flex items-center gap-1.5 rounded px-2 py-1 text-xs text-muted transition-colors hover:bg-chip hover:text-body"
+        aria-label={app.connected ? m.connected() : m.disconnected()}
+        ondblclick={(e) => e.stopPropagation()}
+      >
+        <span
+          class="size-1.5 rounded-full {app.connected ? 'bg-green-500' : 'animate-pulse border border-muted'}"
+        ></span>
+        {app.connected ? m.connected() : m.disconnected()}
+      </Popover.Trigger>
+      <Popover.Portal>
+        <Popover.Content
+          side="bottom"
+          align="end"
+          sideOffset={12}
+          class="anim-popover z-60 min-w-44 rounded-md border border-edge bg-card p-1 shadow-lg"
+        >
+          <div class="flex items-center justify-between gap-4 px-2 py-1.5 text-xs">
+            <span class="text-muted">{m.comPort()}</span>
+            <span>{app.comPort || "—"}</span>
+          </div>
+          <div class="my-1 border-t border-edge"></div>
+          <button
+            type="button"
+            class="flex w-full items-center gap-2 rounded px-2 py-1.5 text-xs text-muted transition-colors hover:bg-chip hover:text-body"
+            onclick={() => {
+              connectionPopoverOpen = false;
+              onOpenConnection();
+            }}
+          >
+            <Settings size={14} class="shrink-0" />
+            <span>{m.connectionSettings()}</span>
+          </button>
+        </Popover.Content>
+      </Popover.Portal>
+    </Popover.Root>
+  </div>
 
   <div class="flex h-full items-stretch [--wails-draggable:no-drag]">
     <button
       type="button"
-      class="flex w-11 items-center justify-center text-muted transition-colors hover:bg-chip hover:text-body"
+      class="mr-1 flex size-7 self-center items-center justify-center rounded text-muted transition-colors hover:bg-chip hover:text-body"
       title={m.settings()}
       aria-label={m.settings()}
       onclick={onOpenSettings}
@@ -178,7 +213,7 @@
     </button>
     <button
       type="button"
-      class="flex w-11 items-center justify-center text-muted transition-colors hover:bg-body hover:text-surface"
+      class="flex w-11 items-center justify-center text-muted transition-colors hover:bg-red-600 hover:text-white"
       title={m.close()}
       aria-label={m.close()}
       onclick={() => Window.Close()}

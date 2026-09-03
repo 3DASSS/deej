@@ -4,6 +4,7 @@
   "autostart": "Run at startup",
   "autostartHint": "deej will launch at startup",
   "connection": "Connection",
+  "connectionSettings": "Connection settings",
   "comPort": "COM port",
   "comPortAuto": "auto (detect by USB VID/PID)",
   "refreshPorts": "Refresh port list",
