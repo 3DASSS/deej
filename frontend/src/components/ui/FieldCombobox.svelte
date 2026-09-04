@@ -78,30 +78,32 @@
       <ChevronsUpDown size={14} />
     </Combobox.Trigger>
   </div>
-  <Combobox.Portal>
-    <Combobox.Content
-      class="anim-popover z-60 max-h-56 w-(--bits-combobox-anchor-width) overflow-y-auto rounded-md border border-edge bg-card p-1 shadow-lg"
-      sideOffset={4}
-    >
-      {#each filtered as item (item.value)}
-        <Combobox.Item
-          value={item.value}
-          label={item.value}
-          class="flex items-center justify-between gap-2 rounded px-2 py-1.5 text-sm data-highlighted:bg-chip"
-        >
-          {#snippet children({ selected })}
-            <span class="truncate">{item.value}</span>
-            <span class="flex shrink-0 items-center gap-1.5">
-              {#if item.hint}
-                <span class="hint">{item.hint}</span>
-              {/if}
-              {#if selected}
-                <Check size={14} class="text-accent" />
-              {/if}
-            </span>
-          {/snippet}
-        </Combobox.Item>
-      {/each}
-    </Combobox.Content>
-  </Combobox.Portal>
+  {#if filtered.length > 0}
+    <Combobox.Portal>
+      <Combobox.Content
+        class="anim-popover z-60 max-h-56 w-(--bits-combobox-anchor-width) overflow-y-auto rounded-md border border-edge bg-card p-1 shadow-lg"
+        sideOffset={4}
+      >
+        {#each filtered as item (item.value)}
+          <Combobox.Item
+            value={item.value}
+            label={item.value}
+            class="flex items-center justify-between gap-2 rounded px-2 py-1.5 text-sm data-highlighted:bg-chip"
+          >
+            {#snippet children({ selected })}
+              <span class="truncate">{item.value}</span>
+              <span class="flex shrink-0 items-center gap-1.5">
+                {#if item.hint}
+                  <span class="hint">{item.hint}</span>
+                {/if}
+                {#if selected}
+                  <Check size={14} class="text-accent" />
+                {/if}
+              </span>
+            {/snippet}
+          </Combobox.Item>
+        {/each}
+      </Combobox.Content>
+    </Combobox.Portal>
+  {/if}
 </Combobox.Root>
