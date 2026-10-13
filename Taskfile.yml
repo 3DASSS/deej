@@ -48,10 +48,20 @@ tasks:
     cmds:
       - wails3 generate bindings -ts -silent ./pkg/...
 
+  generate:resources:
+    desc: Regenerate the Windows icon and manifest resources
+    cmds:
+      - go generate ./...
+
   build:
     desc: Build deej for the current OS (release)
     cmds:
       - task: "{{OS}}:build"
+
+  build:all:
+    desc: Build the release and development binaries for the current OS
+    cmds:
+      - task: "{{OS}}:build:all"
 
   test:
     desc: Run the Go test suite

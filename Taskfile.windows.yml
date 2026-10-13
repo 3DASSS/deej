@@ -24,11 +24,28 @@ tasks:
     desc: Build deej-release.exe (optimized, no console window)
     deps: [syso, frontend]
     cmds:
-      - go build -tags production -o {{.BIN_DIR}}/deej-release.exe -ldflags "-H=windowsgui -s -w {{.LDFLAGS}} -X main.buildType=release" ./pkg/deej/cmd
+      - task: compile:release
 
   build:dev:
     desc: Build deej-dev.exe (debug symbols, console window)
     deps: [syso, frontend]
+    cmds:
+      - task: compile:dev
+
+  build:all:
+    desc: Build the release and development Windows binaries
+    deps: [syso, frontend]
+    cmds:
+      - task: compile:release
+      - task: compile:dev
+
+  compile:release:
+    internal: true
+    cmds:
+      - go build -tags production -o {{.BIN_DIR}}/deej-release.exe -ldflags "-H=windowsgui -s -w {{.LDFLAGS}} -X main.buildType=release" ./pkg/deej/cmd
+
+  compile:dev:
+    internal: true
     cmds:
       - go build -o {{.BIN_DIR}}/deej-dev.exe -gcflags=all="-N -l" -ldflags "{{.LDFLAGS}} -X main.buildType=dev" ./pkg/deej/cmd
 
@@ -50,3 +67,16 @@ tasks:
     deps: [build]
     cmds:
       - ISCC /O{{.BIN_DIR}} "/DAppVersion={{.VERSION_TAG}}" /Qp scripts/windows/installer.iss
+
+  package:universal:
+    desc: Package prebuilt amd64 and arm64 binaries into one installer
+    vars:
+      AMD64_NAME: '{{default "deej-windows-amd64.exe" .AMD64_NAME}}'
+      ARM64_NAME: '{{default "deej-windows-arm64.exe" .ARM64_NAME}}'
+    preconditions:
+      - sh: test -f {{.BIN_DIR}}/{{.AMD64_NAME}}
+        msg: "Missing amd64 binary: {{.BIN_DIR}}/{{.AMD64_NAME}}"
+      - sh: test -f {{.BIN_DIR}}/{{.ARM64_NAME}}
+        msg: "Missing arm64 binary: {{.BIN_DIR}}/{{.ARM64_NAME}}"
+    cmds:
+      - ISCC /O{{.BIN_DIR}} "/DAppVersion={{.VERSION_TAG}}" /DAmd64Exe=../../{{.BIN_DIR}}/{{.AMD64_NAME}} /DArm64Exe=../../{{.BIN_DIR}}/{{.ARM64_NAME}} /Qp scripts/windows/installer.iss

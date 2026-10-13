@@ -15,19 +15,21 @@ Builds are orchestrated by [Task](https://taskfile.dev) (`Taskfile.yml` plus `Ta
 ```bash
 wails3 task windows:build        # release exe (optimized, -H=windowsgui, no console)
 wails3 task windows:build:dev    # dev exe (debug symbols, console window)
+wails3 task windows:build:all    # release + dev exe
 wails3 task windows:package      # release exe + Inno Setup installer (needs ISCC)
+wails3 task windows:package:universal # installer from prebuilt amd64 + arm64 exe files
 wails3 task linux:build          # release GUI binary (cgo: GTK4/WebKitGTK)
 wails3 task linux:build:dev      # dev GUI binary
+wails3 task linux:build:all      # release + dev GUI binaries
 wails3 task linux:build:headless # GUI-less daemon, CGO_ENABLED=0, cross-compilable
 wails3 task generate:bindings    # regenerate Wails Go->TS bindings
+wails3 task generate:resources   # regenerate Windows icon/manifest resources
 ```
 
 The Windows `build` task runs `go generate` for the winres icon/manifest `.syso` files when they're missing (idempotent `status:` check).
 
-The legacy scripts still work and are the entrypoints CI uses — they are now thin wrappers that delegate to Task:
-
-**Windows:** `scripts/windows/build-dev.bat`, `build-release.bat` (→ `windows:build[:dev]`), `make-installer.bat` (→ `windows:package`).
-**Linux:** `scripts/linux/build-dev.sh`, `build-release.sh` (→ `linux:build[:dev]`).
+CI invokes the same Task targets directly; there is no separate shell or batch
+build implementation to keep in sync.
 
 ### Cross-compilation and cgo
 

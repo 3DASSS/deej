@@ -23,14 +23,31 @@ tasks:
   build:
     desc: Build the full GUI app (cgo, GTK4/WebKitGTK) -> deej-release
     deps: [frontend]
+    cmds:
+      - task: compile:release
+
+  build:dev:
+    desc: Build the full GUI app with debug symbols -> deej-dev
+    deps: [frontend]
+    cmds:
+      - task: compile:dev
+
+  build:all:
+    desc: Build the release and development Linux GUI binaries
+    deps: [frontend]
+    cmds:
+      - task: compile:release
+      - task: compile:dev
+
+  compile:release:
+    internal: true
     env:
       CGO_ENABLED: "1"
     cmds:
       - go build -tags production -o {{.BIN_DIR}}/deej-release -ldflags "-s -w {{.LDFLAGS}} -X main.buildType=release" ./pkg/deej/cmd
 
-  build:dev:
-    desc: Build the full GUI app with debug symbols -> deej-dev
-    deps: [frontend]
+  compile:dev:
+    internal: true
     env:
       CGO_ENABLED: "1"
     cmds:

@@ -54,7 +54,6 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
-      # the build scripts delegate to the Task build system (Taskfile.yml)
       - name: Install Task
         uses: arduino/setup-task@v2
         with:
@@ -62,8 +61,7 @@ jobs:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build deej (amd64)
-        run: scripts/windows/build-all.bat
-        shell: cmd
+        run: task windows:build:all
 
       - name: Rename binaries (amd64)
         run: |
@@ -71,8 +69,7 @@ jobs:
           Rename-Item build/deej-dev.exe deej-windows-amd64-dev.exe
 
       - name: Build deej (arm64)
-        run: scripts/windows/build-all.bat
-        shell: cmd
+        run: task windows:build:all
         env:
           GOARCH: arm64
 
@@ -83,7 +80,7 @@ jobs:
 
       # bundles both binaries into a single universal installer
       - name: Build installer
-        run: ISCC /Obuild "/DAppVersion=$(git describe --tags --always)" /DAmd64Exe=../../build/deej-windows-amd64.exe /DArm64Exe=../../build/deej-windows-arm64.exe scripts/windows/installer.iss
+        run: task windows:package:universal
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
@@ -126,7 +123,6 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libgtk-4-dev libwebkitgtk-6.0-dev
 
-      # the build scripts delegate to the Task build system (Taskfile.yml)
       - name: Install Task
         uses: arduino/setup-task@v2
         with:
@@ -134,7 +130,7 @@ jobs:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build deej
-        run: scripts/linux/build-all.sh
+        run: task linux:build:all
 
       - name: Rename binaries
         run: |
