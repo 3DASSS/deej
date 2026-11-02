@@ -20,7 +20,7 @@ wails3 task windows:build:dev    # dev exe (debug symbols, console window)
 wails3 task windows:build:all    # release + dev exe
 wails3 task windows:package      # release exe + Inno Setup installer (needs ISCC)
 wails3 task windows:package:universal # installer from prebuilt amd64 + arm64 exe files
-wails3 task linux:build          # release GUI binary (cgo: GTK4/WebKitGTK)
+wails3 task linux:build          # release GUI binary (CGO-free: purego + GTK4/WebKitGTK)
 wails3 task linux:build:dev      # dev GUI binary
 wails3 task linux:build:all      # release + dev GUI binaries
 wails3 task linux:build:headless # GUI-less daemon, CGO_ENABLED=0, cross-compilable
@@ -39,20 +39,20 @@ build implementation to keep in sync.
 
 ### Cross-compilation and cgo
 
-The **Windows** target and the **Linux headless** build support cross-compilation with `CGO_ENABLED=0`. Select the architecture with `GOARCH`; `linux:build:headless` sets `GOOS=linux` itself, while the Windows tasks require `GOOS=windows` when invoked on another OS. CI builds amd64 and arm64. The **Linux GUI** build (`linux:build`) links the Wails GTK4/WebKitGTK 6.0 backend via cgo, so it needs a C compiler and the `libgtk-4-dev` / `libwebkitgtk-6.0-dev` packages (or Docker) and builds natively per-arch in CI.
+The **Windows** target and all **Linux** builds support cross-compilation with `CGO_ENABLED=0`. Select the architecture with `GOARCH`; all Linux compile tasks set `GOOS=linux` themselves, while the Windows tasks require `GOOS=windows` when invoked on another OS. CI builds Linux amd64 and arm64 GUI binaries on one runner. The **Linux GUI** build (`linux:build`) uses Wails' experimental `purego` backend (GTK4/WebKitGTK 6.0 by default), so compilation needs no C compiler, development headers or Docker. Target machines still need runtime libraries (`libgtk-4-1` / `libwebkitgtk-6.0-4` on Ubuntu). Use `EXTRA_TAGS=gtk3` with a Linux task to select GTK3/WebKit2GTK 4.1 instead.
 
-deej also has a runtime headless switch (`DEEJ_NO_TRAY_ICON`) that skips the tray at startup, but that does **not** drop the compile-time Wails/cgo dependency — the `headless` build tag (see `tray.go` / `tray_headless.go`) is what compiles Wails out entirely.
+deej also has a runtime headless switch (`DEEJ_NO_TRAY_ICON`) that skips the tray at startup, but that does **not** remove Wails or its GTK/WebKit runtime requirements — the `headless` build tag (see `tray.go` / `tray_headless.go`) is what compiles Wails out entirely.
 
 ## Tests and Frontend Checks
 
 Run from the repository root:
 
 ```bash
-wails3 task test                 # go test ./...
+wails3 task test                 # CGO-free tests; adds -tags purego on Linux
 npm --prefix frontend run check  # Svelte and TypeScript checks
 ```
 
-Go tests for the Linux GUI need the same GTK4/WebKitGTK development packages as the GUI build. Before the first frontend check, install dependencies with `npm --prefix frontend ci` and run `wails3 task frontend:build` to generate the git-ignored Paraglide modules. After changing the Go service API or config model, regenerate bindings with `wails3 task generate:bindings`.
+For direct Linux tests use `CGO_ENABLED=0 go test -tags purego ./...`; CI installs GTK4/WebKitGTK runtime libraries, with no development headers. Before the first frontend check, install dependencies with `npm --prefix frontend ci` and run `wails3 task frontend:build` to generate the git-ignored Paraglide modules. After changing the Go service API or config model, regenerate bindings with `wails3 task generate:bindings`.
 
 ## Linting
 

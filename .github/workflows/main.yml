@@ -14,6 +14,11 @@ jobs:
     strategy:
       matrix:
         os: [windows-latest, ubuntu-latest]
+        include:
+          - os: ubuntu-latest
+            go-flags: -tags=purego
+    env:
+      CGO_ENABLED: "0"
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -23,15 +28,15 @@ jobs:
         with:
           go-version-file: go.mod
 
-      # the wails linux backend is cgo and needs GTK/WebKitGTK headers
-      - name: Install GTK dependencies
+      # Purego loads these libraries at runtime; compilation needs no headers.
+      - name: Install GTK runtime libraries
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libgtk-4-dev libwebkitgtk-6.0-dev
+          sudo apt-get install -y libgtk-4-1 libwebkitgtk-6.0-4
 
       - name: Run tests
-        run: go test ./...
+        run: go test ${{ matrix.go-flags }} ./...
 
   build-windows:
     name: Build (windows)
@@ -88,18 +93,12 @@ jobs:
           name: deej-windows
           path: build/
 
-  # linux builds are cgo (wails GTK backend), so each architecture builds
-  # natively on a matching runner instead of cross-compiling
+  # The purego GUI backend lets one runner cross-compile both architectures.
   build-linux:
-    name: Build (linux ${{ matrix.arch }})
-    runs-on: ${{ matrix.runner }}
-    strategy:
-      matrix:
-        include:
-          - arch: amd64
-            runner: ubuntu-latest
-          - arch: arm64
-            runner: ubuntu-24.04-arm
+    name: Build (linux)
+    runs-on: ubuntu-latest
+    env:
+      CGO_ENABLED: "0"
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -118,30 +117,37 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
-      - name: Install GTK dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libgtk-4-dev libwebkitgtk-6.0-dev
-
       - name: Install Task
         uses: arduino/setup-task@v2
         with:
           version: 3.x
           repo-token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build deej
+      - name: Build deej (amd64)
         run: task linux:build:all
+        env:
+          GOARCH: amd64
 
-      - name: Rename binaries
+      - name: Rename binaries (amd64)
         run: |
-          mv build/deej-release build/deej-linux-${{ matrix.arch }}
-          mv build/deej-dev build/deej-linux-${{ matrix.arch }}-dev
+          mv build/deej-release build/deej-linux-amd64
+          mv build/deej-dev build/deej-linux-amd64-dev
+
+      - name: Build deej (arm64)
+        run: task linux:build:all
+        env:
+          GOARCH: arm64
+
+      - name: Rename binaries (arm64)
+        run: |
+          mv build/deej-release build/deej-linux-arm64
+          mv build/deej-dev build/deej-linux-arm64-dev
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: deej-linux-${{ matrix.arch }}
-          path: build/
+          name: deej-linux
+          path: build/deej-linux-*
 
   # the headless build compiles Wails out (-tags headless), so it is cgo-free and
   # a single runner cross-compiles every arch without GTK/WebKit or Node

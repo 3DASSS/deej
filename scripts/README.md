@@ -23,6 +23,8 @@ wails3 task generate:resources           # regenerate Windows icon/manifest reso
 
 All GUI build tasks build the settings frontend first, which requires [Node.js](https://nodejs.org) (see [`frontend/`](../frontend)).
 
-Linux builds use cgo (the [Wails](https://wails.io) GTK backend for the tray and settings window) and need GTK4/WebKitGTK headers, e.g. on Ubuntu 24.04+: `sudo apt-get install libgtk-4-dev libwebkitgtk-6.0-dev`. For older distros that lack `webkitgtk-6.0`, build with `-tags gtk3` and `libgtk-3-dev libwebkit2gtk-4.1-dev` instead.
+Linux GUI builds use the experimental [Wails purego backend](https://github.com/wailsapp/wails/blob/v3.1.0/v3/pkg/application/PUREGO_LINUX.md) with `CGO_ENABLED=0`. No C compiler, GTK/WebKit development headers or Docker are needed to build. The target machine still needs GTK4/WebKitGTK runtime libraries, e.g. on Ubuntu 24.04+: `sudo apt-get install libgtk-4-1 libwebkitgtk-6.0-4`. For older distros that lack `webkitgtk-6.0`, use `wails3 task linux:build EXTRA_TAGS=gtk3` and install `libgtk-3-0 libwebkit2gtk-4.1-0` on the target instead.
 
-Windows binaries are cgo-free, so Task can cross-compile them (e.g. `GOOS=windows GOARCH=arm64 wails3 task windows:build`). Linux targets must be built natively on a matching architecture; CI uses a native arm64 runner for the arm64 build.
+Windows and Linux binaries are CGO-free and cross-compilable. Select the architecture with `GOARCH`, e.g. `GOARCH=arm64 wails3 task linux:build:all`. All Linux tasks set `GOOS=linux`; Windows tasks need `GOOS=windows` when invoked on another OS. CI builds Linux amd64 and arm64 GUI binaries on one runner. The Linux headless build (`linux:build:headless`) omits Wails entirely and needs no GTK/WebKit runtime libraries.
+
+`wails3 task test` disables CGO and selects `purego` on Linux. To run Linux tests directly, use `CGO_ENABLED=0 go test -tags purego ./...`.

@@ -65,8 +65,10 @@ tasks:
 
   test:
     desc: Run the Go test suite
+    env:
+      CGO_ENABLED: "0"
     cmds:
-      - go test ./...
+      - go test {{if eq OS "linux"}}-tags purego{{end}} ./...
 
   dev:
     desc: Run deej in Wails dev mode (Go rebuild-on-change + Vite HMR for the settings UI)
