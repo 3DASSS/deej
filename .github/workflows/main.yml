@@ -14,6 +14,11 @@ jobs:
     strategy:
       matrix:
         os: [windows-latest, ubuntu-latest]
+        include:
+          - os: ubuntu-latest
+            go-flags: -tags=purego
+    env:
+      CGO_ENABLED: "0"
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -21,10 +26,17 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: "1.25.7"
+          go-version-file: go.mod
+
+      # Purego loads these libraries at runtime; compilation needs no headers.
+      - name: Install GTK runtime libraries
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-4-1 libwebkitgtk-6.0-4
 
       - name: Run tests
-        run: go test ./...
+        run: go test ${{ matrix.go-flags }} ./...
 
   build-windows:
     name: Build (windows)
@@ -38,40 +50,116 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: "1.25.7"
+          go-version-file: go.mod
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install Task
+        uses: arduino/setup-task@v2
+        with:
+          version: 3.x
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install Wails CLI
+        shell: pwsh
+        run: |
+          $wailsVersion = go list -m -f '{{.Version}}' github.com/wailsapp/wails/v3
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          go install "github.com/wailsapp/wails/v3/cmd/wails3@$wailsVersion"
 
       - name: Build deej (amd64)
-        run: scripts/windows/build-all.bat
-        shell: cmd
+        run: task windows:build:all
 
       - name: Rename binaries (amd64)
         run: |
-          Rename-Item build/deej-release.exe deej-windows-amd64.exe
-          Rename-Item build/deej-dev.exe deej-windows-amd64-dev.exe
+          Rename-Item bin/deej-release.exe deej-windows-amd64.exe
+          Rename-Item bin/deej-dev.exe deej-windows-amd64-dev.exe
 
       - name: Build deej (arm64)
-        run: scripts/windows/build-all.bat
-        shell: cmd
+        run: task windows:build:all
         env:
           GOARCH: arm64
 
       - name: Rename binaries (arm64)
         run: |
-          Rename-Item build/deej-release.exe deej-windows-arm64.exe
-          Rename-Item build/deej-dev.exe deej-windows-arm64-dev.exe
+          Rename-Item bin/deej-release.exe deej-windows-arm64.exe
+          Rename-Item bin/deej-dev.exe deej-windows-arm64-dev.exe
 
       # bundles both binaries into a single universal installer
       - name: Build installer
-        run: ISCC /Obuild "/DAppVersion=$(git describe --tags --always)" /DAmd64Exe=../../build/deej-windows-amd64.exe /DArm64Exe=../../build/deej-windows-arm64.exe scripts/windows/installer.iss
+        run: task windows:package:universal
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: deej-windows
-          path: build/
+          path: bin/
 
+  # The purego GUI backend lets one runner cross-compile both architectures.
   build-linux:
     name: Build (linux)
+    runs-on: ubuntu-latest
+    env:
+      CGO_ENABLED: "0"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install Task
+        uses: arduino/setup-task@v2
+        with:
+          version: 3.x
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build deej (amd64)
+        run: task linux:build:all
+        env:
+          GOARCH: amd64
+
+      - name: Rename binaries (amd64)
+        run: |
+          mv bin/deej-release bin/deej-linux-amd64
+          mv bin/deej-dev bin/deej-linux-amd64-dev
+
+      - name: Build deej (arm64)
+        run: task linux:build:all
+        env:
+          GOARCH: arm64
+
+      - name: Rename binaries (arm64)
+        run: |
+          mv bin/deej-release bin/deej-linux-arm64
+          mv bin/deej-dev bin/deej-linux-arm64-dev
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: deej-linux
+          path: bin/deej-linux-*
+
+  # the headless build compiles Wails out (-tags headless), so it is cgo-free and
+  # a single runner cross-compiles every arch without GTK/WebKit or Node
+  build-linux-headless:
+    name: Build (linux headless)
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -82,36 +170,31 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: "1.25.7"
+          go-version-file: go.mod
 
-      - name: Build deej (amd64)
-        run: scripts/linux/build-all.sh
+      - name: Install Task
+        uses: arduino/setup-task@v2
+        with:
+          version: 3.x
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Rename binaries (amd64)
+      - name: Build deej (headless, amd64 + arm64)
         run: |
-          mv build/deej-release build/deej-linux-amd64
-          mv build/deej-dev build/deej-linux-amd64-dev
-
-      - name: Build deej (arm64)
-        run: scripts/linux/build-all.sh
-        env:
-          GOARCH: arm64
-
-      - name: Rename binaries (arm64)
-        run: |
-          mv build/deej-release build/deej-linux-arm64
-          mv build/deej-dev build/deej-linux-arm64-dev
+          GOARCH=amd64 task linux:build:headless
+          mv bin/deej-headless bin/deej-linux-amd64-headless
+          GOARCH=arm64 task linux:build:headless
+          mv bin/deej-headless bin/deej-linux-arm64-headless
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: deej-linux
-          path: build/
+          name: deej-linux-headless
+          path: bin/
 
   release:
     name: Create release draft
     if: startsWith(github.ref, 'refs/tags/')
-    needs: [build-windows, build-linux]
+    needs: [build-windows, build-linux, build-linux-headless]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -137,9 +220,13 @@ jobs:
             | Windows portable | arm64 | [deej-windows-arm64.exe](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/deej-windows-arm64.exe) |
             | Linux | amd64 | [deej-linux-amd64](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/deej-linux-amd64) |
             | Linux | arm64 | [deej-linux-arm64](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/deej-linux-arm64) |
+            | Linux (headless, no GUI) | amd64 | [deej-linux-amd64-headless](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/deej-linux-amd64-headless) |
+            | Linux (headless, no GUI) | arm64 | [deej-linux-arm64-headless](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/deej-linux-arm64-headless) |
           files: |
             artifacts/deej-windows-amd64.exe
             artifacts/deej-windows-arm64.exe
             artifacts/deej-linux-amd64
             artifacts/deej-linux-arm64
+            artifacts/deej-linux-amd64-headless
+            artifacts/deej-linux-arm64-headless
             artifacts/deej_setup.exe

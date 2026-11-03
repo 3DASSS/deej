@@ -8,6 +8,8 @@
 # on linux, input devices get an ' (input)' suffix, i.e. "HyperX Cloud (input)", since a device's input and output can share the same name
 # windows only - you can use 'system' to control the "system sounds" volume
 # you can use 'deej.obs:<input name>' to control OBS audio sources (requires obs.enabled: true)
+# you can use 'deej.discord:<name>' to control one person's volume in your voice channel, and
+# 'deej.discord.input' / 'deej.discord.output' for your own levels inside discord (requires discord.enabled: true)
 # important: slider indexes start at 0, regardless of which analog pins you're using!
 slider_mapping:
   0: firefox.exe
@@ -16,16 +18,33 @@ slider_mapping:
   3: master
   4: mic
 
+# for more than one layout, replace slider_mapping above with a list of profiles:
+# each has its own mapping, and an optional hotkey that switches to it from any
+# application. everything else in this file stays shared between them
+# active_profile: default
+# profiles:
+#   - name: default
+#     slider_mapping:
+#       0: master
+#       1: discord.exe
+#   - name: gaming
+#     hotkey: Ctrl+Alt+2
+#     slider_mapping:
+#       0: master
+#       1: [game.exe, discord.exe]
+
 # set this to true if you want the controls inverted (i.e. top is 0%, bottom is 100%)
 invert_sliders: false
 
 # settings for connecting to the arduino board
-com_port: auto
-baud_rate: 9600
+# set port to auto to detect it by USB VID/PID
+com:
+  port: auto
+  baud_rate: 9600
 
-# change this if your mixer uses a different serial port chip so that automatic COM port detection will work
-# com_vid: 0x1A86
-# com_pid: 0x7523
+  # change these if your mixer uses a different serial port chip so that automatic COM port detection will work
+  # vid: 0x1A86
+  # pid: 0x7523
 
 # adjust the amount of signal noise reduction depending on your hardware quality
 # supported values are "low" (excellent hardware), "default" (regular hardware), "high" (bad, noisy hardware)
@@ -43,3 +62,22 @@ obs:
   host: localhost
   port: 4455
   password: ""
+  # recommended: keeps the physical slider aligned with the fader shown in OBS
+  # and gives finer control at low volumes; false makes volume rise faster
+  volume_conversion: true
+
+# Discord integration (optional)
+# control the volume of individual people in a voice call with 'deej.discord:<name>',
+# and your own levels inside discord with 'deej.discord.input' / 'deej.discord.output'
+# discord only allows this for an application you own, so create one at
+# https://discord.com/developers/applications, add http://localhost as a redirect URI
+# under OAuth2, and put its client id and secret here. then link the account from
+# deej's settings window - discord will ask you to approve it once
+discord:
+  enabled: false
+  client_id: ""
+  client_secret: ""
+  # recommended for individual participants: keeps the physical slider aligned
+  # with Discord's on-screen control and improves low-volume precision;
+  # false makes volume rise faster. input/output targets are unaffected
+  volume_conversion: true
