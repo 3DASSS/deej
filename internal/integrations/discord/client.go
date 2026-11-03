@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"os"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -89,6 +88,11 @@ type Client struct {
 
 	token  atomic.Pointer[discordToken]
 	roster atomic.Pointer[discordRoster]
+
+	// Serialize token commits and removal, without holding the lock during
+	// network requests. Older requests must not undo Unlink or a newer Link.
+	authLock       sync.Mutex
+	authGeneration uint64
 
 	// volumeLock guards the throttle's two maps: pending is what the slider
 	// handler wrote, lastSent is what actually reached Discord
@@ -349,8 +353,7 @@ func (d *Client) setupOnConfigReload() {
 
 			credentialsChanged := discordCredentialsChanged(previous, current)
 			if credentialsChanged {
-				d.token.Store(nil)
-				if err := os.Remove(d.tokenPath()); err != nil && !errors.Is(err, os.ErrNotExist) {
+				if err := d.clearToken(); err != nil {
 					d.logger.Warnw("Failed to remove Discord token after credentials changed", "error", err)
 				}
 			}

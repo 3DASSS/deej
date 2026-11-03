@@ -14,13 +14,18 @@ import (
 	"time"
 )
 
+var errAuthorizationChanged = errors.New("discord authorization changed during token request")
+
 // Link runs the one interactive step of the integration: Discord shows the
 // user a consent dialog, and approving it hands back an authorization code
 // that deej exchanges for a token it can reuse from now on. This is deliberately
 // not part of dial - a retry every few seconds would mean a popup every few
 // seconds - so it lives behind the settings window's button
 func (d *Client) Link() error {
+	d.authLock.Lock()
 	cfg := d.settings.Values().Discord
+	generation := d.authGeneration
+	d.authLock.Unlock()
 
 	if cfg.ClientID == "" || cfg.ClientSecret == "" {
 		return errors.New("save a Discord client ID and secret first")
@@ -56,7 +61,7 @@ func (d *Client) Link() error {
 		return err
 	}
 
-	if err := d.storeToken(token); err != nil {
+	if err := d.storeToken(cfg, generation, token); err != nil {
 		return err
 	}
 
@@ -68,15 +73,24 @@ func (d *Client) Link() error {
 
 // Unlink forgets the stored token, which also drops the connection
 func (d *Client) Unlink() error {
-	d.token.Store(nil)
+	err := d.clearToken()
+	d.reconnector.Reconnect(errors.New("account unlinked"))
+	if err != nil {
+		return err
+	}
+	d.logger.Info("Unlinked Discord account")
 
+	return nil
+}
+
+func (d *Client) clearToken() error {
+	d.authLock.Lock()
+	defer d.authLock.Unlock()
+	d.authGeneration++
+	d.token.Store(nil)
 	if err := os.Remove(d.tokenPath()); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return fmt.Errorf("remove Discord token: %w", err)
 	}
-
-	d.logger.Info("Unlinked Discord account")
-	d.reconnector.Reconnect(errors.New("account unlinked"))
-
 	return nil
 }
 
@@ -102,6 +116,9 @@ func (d *Client) tokenPath() string {
 }
 
 func (d *Client) loadToken() {
+	d.authLock.Lock()
+	defer d.authLock.Unlock()
+
 	data, err := os.ReadFile(d.tokenPath())
 	if err != nil {
 		return
@@ -118,13 +135,20 @@ func (d *Client) loadToken() {
 	}
 
 	d.token.Store(&token)
+	d.authGeneration++
 	d.logger.Debug("Loaded stored Discord token")
 }
 
-// storeToken persists the token next to the config file. writeFileAtomic
+// storeToken persists the token next to the config file. atomicfile.Write
 // creates at 0600 and the rename preserves it, which is exactly what a
 // credential file needs
-func (d *Client) storeToken(token *discordToken) error {
+func (d *Client) storeToken(cfg config.DiscordSettings, generation uint64, token *discordToken) error {
+	d.authLock.Lock()
+	defer d.authLock.Unlock()
+	if generation != d.authGeneration || discordCredentialsChanged(cfg, d.settings.Values().Discord) {
+		return errAuthorizationChanged
+	}
+
 	data, err := json.Marshal(token)
 	if err != nil {
 		return fmt.Errorf("marshal Discord token: %w", err)
@@ -135,11 +159,20 @@ func (d *Client) storeToken(token *discordToken) error {
 	}
 
 	d.token.Store(token)
+	d.authGeneration++
 
 	return nil
 }
 
 func (d *Client) ensureFreshToken(cfg config.DiscordSettings, token *discordToken) (*discordToken, error) {
+	d.authLock.Lock()
+	generation := d.authGeneration
+	current := d.token.Load() == token && !discordCredentialsChanged(cfg, d.settings.Values().Discord)
+	d.authLock.Unlock()
+	if !current {
+		return nil, errAuthorizationChanged
+	}
+
 	if !token.expired() {
 		return token, nil
 	}
@@ -158,7 +191,7 @@ func (d *Client) ensureFreshToken(cfg config.DiscordSettings, token *discordToke
 		return nil, fmt.Errorf("refresh Discord token: %w", err)
 	}
 
-	if err := d.storeToken(refreshed); err != nil {
+	if err := d.storeToken(cfg, generation, refreshed); err != nil {
 		return nil, err
 	}
 
