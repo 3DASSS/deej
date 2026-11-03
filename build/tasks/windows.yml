@@ -4,14 +4,13 @@ version: "3"
 # LDFLAGS and VERSION_TAG. All tasks run from the repo root (dir: {{.ROOT_DIR}}).
 
 tasks:
-  syso:
-    desc: Generate winres icon/manifest .syso files (idempotent)
-    internal: true
+  generate:syso:
+    desc: Generate Windows icon, manifest and version resources for GOARCH
+    vars:
+      RESOURCE_ARCH:
+        sh: go env GOARCH
     cmds:
-      - go generate ./...
-    status:
-      - test -f cmd/deej/rsrc_windows_amd64.syso
-      - test -f cmd/deej/rsrc_windows_arm64.syso
+      - wails3 generate syso -arch {{.RESOURCE_ARCH}} -icon internal/icon/assets/logo.ico -manifest build/windows/wails.exe.manifest -info build/windows/info.json -out cmd/deej/wails_windows_{{.RESOURCE_ARCH}}.syso
 
   frontend:
     internal: true
@@ -22,19 +21,19 @@ tasks:
 
   build:
     desc: Build deej-release.exe (optimized, no console window)
-    deps: [syso, frontend]
+    deps: [generate:syso, frontend]
     cmds:
       - task: compile:release
 
   build:dev:
     desc: Build deej-dev.exe (debug symbols, console window)
-    deps: [syso, frontend]
+    deps: [generate:syso, frontend]
     cmds:
       - task: compile:dev
 
   build:all:
     desc: Build the release and development Windows binaries
-    deps: [syso, frontend]
+    deps: [generate:syso, frontend]
     cmds:
       - task: compile:release
       - task: compile:dev
@@ -55,7 +54,7 @@ tasks:
     desc: Build deej-dev.exe without rebuilding the embedded frontend (for `wails3 dev`)
     # No `frontend` dep: in dev mode assets are served by Vite via
     # FRONTEND_DEVSERVER_URL, and the //go:embed only needs dist/.gitkeep to exist.
-    deps: [syso]
+    deps: [generate:syso]
     cmds:
       - go build -o {{.BIN_DIR}}/deej-dev.exe -gcflags="github.com/nik9play/deej/...=-N -l" -ldflags "{{.LDFLAGS}} -X main.buildType=dev" ./cmd/deej
 

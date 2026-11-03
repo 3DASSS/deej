@@ -3,7 +3,7 @@ version: "3"
 # deej build orchestration. This is the Task (https://taskfile.dev) build system
 # that also underpins `wails3 build`/`wails3 task`. It keeps deej's own bits that
 # don't fit the default wails3 layout: the Inno Setup installer
-# (scripts/windows/installer.iss), winres dual-arch resources, and the custom
+# (scripts/windows/installer.iss), the cmd/deej entry point, and the custom
 # version ldflags. Invoke with `task <name>` or `wails3 task <name>`.
 
 includes:
@@ -49,9 +49,9 @@ tasks:
       - wails3 generate bindings -ts -silent ./cmd/... ./internal/...
 
   generate:resources:
-    desc: Regenerate the Windows icon and manifest resources
+    desc: Generate Windows resources for GOARCH (defaults to the host architecture)
     cmds:
-      - go generate ./...
+      - task: windows:generate:syso
 
   build:
     desc: Build deej for the current OS (release)

@@ -25,10 +25,10 @@ wails3 task linux:build:dev      # dev GUI binary
 wails3 task linux:build:all      # release + dev GUI binaries
 wails3 task linux:build:headless # GUI-less daemon, CGO_ENABLED=0, cross-compilable
 wails3 task generate:bindings    # regenerate Wails Go->TS bindings
-wails3 task generate:resources   # regenerate Windows icon/manifest resources
+wails3 task generate:resources   # generate Windows icon/manifest/version resources for GOARCH
 ```
 
-The Windows `build` task runs `go generate` for winres icon/manifest `.syso` files in `cmd/deej/` when missing (idempotent `status:` check). Build tasks run from the repository root; `build/` contains configuration only.
+Every Windows build task runs `wails3 generate syso` for the target returned by `go env GOARCH`, writing `cmd/deej/wails_windows_<arch>.syso`. These generated files are git-ignored and regenerated on every build so icon, manifest and version-info changes take effect automatically. The manifest and version-info sources live in `build/windows/`; they were generated once with `wails3 generate build-assets` and are committed alongside the existing icon in `internal/icon/assets/logo.ico`. Build tasks run from the repository root; `build/` contains configuration only. Use the Wails CLI version required by `go.mod`; Windows CI installs that exact version.
 
 `wails3 task dev` runs `wails3 dev` with `build/config.yml`. It starts Vite, builds the current platform's dev binary through `*:build:dev:live`, and runs it with `FRONTEND_DEVSERVER_URL` and `WAILS_VITE_PORT` set. Go changes trigger a rebuild; frontend changes use Vite HMR. The committed `frontend/dist/.gitkeep` lets Go embed the assets directory before the first frontend build.
 
@@ -68,7 +68,7 @@ Enabled linters: errcheck, govet, revive, staticcheck, unused
 
 ### Packages and dependency boundaries
 
-- **cmd/deej/** owns CLI parsing, version linker variables, winres resources, and build-tagged GUI/headless bootstrap. Only the GUI bootstrap imports `internal/desktop`.
+- **cmd/deej/** owns CLI parsing, version linker variables, generated Windows `.syso` resources, and build-tagged GUI/headless bootstrap. Windows resource sources live in `build/windows/`. Only the GUI bootstrap imports `internal/desktop`.
 - **internal/app/** composes core services, localization, logging, crash reporting and lifecycle. It does not import Wails, desktop or frontend assets. Load initial settings and resolve language before creating consumers; register mixer and independent GUI subscriptions before starting serial/OBS/Discord.
 - **internal/config/** owns the single `Settings` model (`model.go`, `defaults.go`, `normalize.go`, `mapping.go`, `legacy.go`) and store/watcher (`store.go`, `watch.go`). `Values()` publishes immutable snapshots atomically. Read fresh settings per operation; never retain a constructor snapshot. `SliderMappings.Get` returns copied targets. Store outcomes are localized by app callbacks.
 - **internal/audio/** owns `Session`, `SessionFinder`, events and Windows Core Audio / Linux PulseAudio implementations. Session removal handlers run synchronously before resources are released. Master/system/mic identifiers belong here.

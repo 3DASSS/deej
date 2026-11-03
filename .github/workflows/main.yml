@@ -65,6 +65,13 @@ jobs:
           version: 3.x
           repo-token: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Install Wails CLI
+        shell: pwsh
+        run: |
+          $wailsVersion = go list -m -f '{{.Version}}' github.com/wailsapp/wails/v3
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          go install "github.com/wailsapp/wails/v3/cmd/wails3@$wailsVersion"
+
       - name: Build deej (amd64)
         run: task windows:build:all
 

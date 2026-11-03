@@ -1,5 +1,3 @@
-//go:generate go run github.com/tc-hib/go-winres@latest make --arch amd64,arm64 --out rsrc
-
 package main
 
 import (

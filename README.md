@@ -24,7 +24,8 @@ wails3 task dev
 
 Build with `wails3 task windows:build:all`, `wails3 task linux:build:all`, or
 `wails3 task linux:build:headless`. Binaries/installers go to `bin/`;
-`build/config.yml` and `build/tasks/` contain build/development configuration.
+`build/config.yml` and `build/tasks/` contain build/development configuration;
+`build/windows/` contains the Windows manifest and version-info sources.
 Linux builds are CGO-free; GUI binaries need GTK/WebKit runtime libraries.
 The headless target needs neither Node.js nor frontend assets.
 

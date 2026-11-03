@@ -6,12 +6,17 @@ venv/
 .vscode
 *.lnk
 *.exe
+*.syso
 deej-dev
 deej-release
 build/*
 !build/config.yml
 !build/tasks/
 !build/tasks/*.yml
+!build/windows/
+build/windows/*
+!build/windows/wails.exe.manifest
+!build/windows/info.json
 bin/
 releases/
 *.bin
