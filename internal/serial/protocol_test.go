@@ -2,6 +2,7 @@ package serial
 
 import (
 	"github.com/nik9play/deej/internal/config"
+	"slices"
 	"testing"
 
 	"go.uber.org/zap"
@@ -69,6 +70,8 @@ func TestHandleLineIgnoresMalformedLines(t *testing.T) {
 		{"five digit value", "10000|512\r\n"},
 		{"trailing pipe", "512|512|\r\n"},
 		{"dirty first value", "4558|925|41\r\n"},
+		{"dirty second value", "512|1024|41\r\n"},
+		{"dirty last value", "512|925|9999\r\n"},
 	}
 
 	for _, tt := range tests {
@@ -79,6 +82,36 @@ func TestHandleLineIgnoresMalformedLines(t *testing.T) {
 
 			if events := drainEvents(ch); len(events) != 0 {
 				t.Errorf("line %q produced %d events, expected none", tt.line, len(events))
+			}
+		})
+	}
+}
+
+func TestHandleLineRejectsOutOfRangeWithoutChangingState(t *testing.T) {
+	for _, tt := range []struct {
+		name   string
+		invert bool
+	}{
+		{"normal", false},
+		{"inverted", true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			sio, ch := newTestClient(tt.invert, "")
+			sio.handleLine(sio.logger, "0|1023\r\n")
+			drainEvents(ch)
+			before := sio.CurrentSliderPercentValues()
+
+			for _, line := range []string{"512|9999\r\n", "512|925|1024\r\n"} {
+				sio.handleLine(sio.logger, line)
+				if events := drainEvents(ch); len(events) != 0 {
+					t.Fatalf("invalid line %q emitted events: %+v", line, events)
+				}
+				if sio.lastKnownNumSliders != 2 || !slices.Equal(sio.currentSliderValues, []int{0, 1023}) {
+					t.Fatalf("invalid line %q changed slider state: count=%d, values=%v", line, sio.lastKnownNumSliders, sio.currentSliderValues)
+				}
+				if got := sio.CurrentSliderPercentValues(); !slices.Equal(got, before) {
+					t.Fatalf("invalid line %q changed current volumes: %v", line, got)
+				}
 			}
 		})
 	}

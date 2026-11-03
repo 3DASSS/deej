@@ -48,15 +48,17 @@ func (sio *Client) handleLine(logger *zap.SugaredLogger, line string) {
 	// trim the suffix
 	line = strings.TrimSuffix(line, "\r\n")
 
-	// split on pipe (|), this gives a slice of numerical strings between "0" and "1023"
+	// Validate every reading before changing state or publishing any events.
 	splitLine := strings.Split(line, "|")
 	numSliders := len(splitLine)
-
-	// turns out the first line could come out dirty sometimes (i.e. "4558|925|41|643|220")
-	// so let's check the first number for correctness just in case
-	if firstNumber, _ := strconv.Atoi(splitLine[0]); firstNumber > 1023 {
-		logger.Debugw("Got malformed line from serial, ignoring", "line", line)
-		return
+	readings := make([]int, numSliders)
+	for i, value := range splitLine {
+		number, err := strconv.Atoi(value)
+		if err != nil || number < 0 || number > 1023 {
+			logger.Debugw("Got malformed line from serial, ignoring", "line", line)
+			return
+		}
+		readings[i] = number
 	}
 
 	config := sio.settings.Values()
@@ -77,10 +79,7 @@ func (sio *Client) handleLine(logger *zap.SugaredLogger, line string) {
 
 	// for each slider:
 	moveEvents := []SliderMoveEvent{}
-	for sliderIdx, stringValue := range splitLine {
-
-		// convert string values to integers ("1023" -> 1023)
-		number, _ := strconv.Atoi(stringValue)
+	for sliderIdx, number := range readings {
 
 		// map the value from raw to a "dirty" float between 0 and 1 (e.g. 0.15451...)
 		dirtyFloat := float32(number) / 1023.0
