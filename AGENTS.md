@@ -10,7 +10,7 @@ This is a fork of the original deej project (github.com/omriharel/deej) with aut
 
 ## Build Commands
 
-Builds are orchestrated by [Task](https://taskfile.dev) (`Taskfile.yml` plus `Taskfile.{windows,linux}.yml`) — the same build system that underpins `wails3 build`. The GUI `build`, `build:dev` and `build:all` tasks compile the embedded Svelte frontend before the Go binary, so Node.js and npm are required. They run `npm ci` only when `frontend/node_modules` is absent, then `npm run build`; after dependency or lockfile changes, run `npm ci` in `frontend/` explicitly. The Linux headless build needs neither Node.js nor frontend assets. The `*:build:dev:live` tasks skip the frontend build because Wails dev mode serves it from Vite. Run tasks with `wails3 task <name>` — the wails3 CLI embeds the Task runner and is what's installed here (the standalone `task` binary also works if present, but don't assume it). Binaries go to `build/`; frontend assets go to `frontend/dist/`.
+Builds are orchestrated by [Task](https://taskfile.dev) (`Taskfile.yml` plus `build/tasks/{windows,linux}.yml`) — the same build system that underpins `wails3 build`. The GUI `build`, `build:dev` and `build:all` tasks compile the embedded Svelte frontend before the Go binary, so Node.js and npm are required. They run `npm ci` only when `frontend/node_modules` is absent, then `npm run build`; after dependency or lockfile changes, run `npm ci` in `frontend/` explicitly. The Linux headless build needs neither Node.js nor frontend assets. The `*:build:dev:live` tasks skip the frontend build because Wails dev mode serves it from Vite. Run tasks with `wails3 task <name>` — the wails3 CLI embeds the Task runner and is what's installed here (the standalone `task` binary also works if present, but don't assume it). Binaries and installers go to `bin/`; frontend assets go to `frontend/dist/`.
 
 ```bash
 wails3 task dev                  # Go rebuild-on-change + Vite HMR
@@ -28,7 +28,7 @@ wails3 task generate:bindings    # regenerate Wails Go->TS bindings
 wails3 task generate:resources   # regenerate Windows icon/manifest resources
 ```
 
-The Windows `build` task runs `go generate` for the winres icon/manifest `.syso` files when they're missing (idempotent `status:` check).
+The Windows `build` task runs `go generate` for winres icon/manifest `.syso` files in `cmd/deej/` when missing (idempotent `status:` check). Build tasks run from the repository root; `build/` contains configuration only.
 
 `wails3 task dev` runs `wails3 dev` with `build/config.yml`. It starts Vite, builds the current platform's dev binary through `*:build:dev:live`, and runs it with `FRONTEND_DEVSERVER_URL` and `WAILS_VITE_PORT` set. Go changes trigger a rebuild; frontend changes use Vite HMR. The committed `frontend/dist/.gitkeep` lets Go embed the assets directory before the first frontend build.
 
@@ -41,7 +41,7 @@ build implementation to keep in sync.
 
 The **Windows** target and all **Linux** builds support cross-compilation with `CGO_ENABLED=0`. Select the architecture with `GOARCH`; all Linux compile tasks set `GOOS=linux` themselves, while the Windows tasks require `GOOS=windows` when invoked on another OS. CI builds Linux amd64 and arm64 GUI binaries on one runner. The **Linux GUI** build (`linux:build`) uses Wails' experimental `purego` backend (GTK4/WebKitGTK 6.0 by default), so compilation needs no C compiler, development headers or Docker. Target machines still need runtime libraries (`libgtk-4-1` / `libwebkitgtk-6.0-4` on Ubuntu). Use `EXTRA_TAGS=gtk3` with a Linux task to select GTK3/WebKit2GTK 4.1 instead.
 
-deej also has a runtime headless switch (`DEEJ_NO_TRAY_ICON`) that skips the tray at startup, but that does **not** remove Wails or its GTK/WebKit runtime requirements — the `headless` build tag (see `tray.go` / `tray_headless.go`) is what compiles Wails out entirely.
+deej also has a runtime headless switch (`DEEJ_NO_TRAY_ICON`) that skips the tray at startup, but that does **not** remove Wails or its GTK/WebKit runtime requirements — the `headless` build tag (see `cmd/deej/bootstrap_gui.go` / `cmd/deej/bootstrap_headless.go`) is what compiles Wails out entirely.
 
 ## Tests and Frontend Checks
 
@@ -66,42 +66,36 @@ Enabled linters: errcheck, govet, revive, staticcheck, unused
 
 ## Architecture
 
-### Core Components (pkg/deej/)
+### Packages and dependency boundaries
 
-- **deej.go** - Main application orchestrator. Creates and manages all components (config, serial, sessions, OBS, Discord, tray), handles i18n setup, runs the main event loop
-- **serial.go** - Arduino communication via serial port (`go.bug.st/serial`). Parses slider values (format: `val1|val2|val3\r\n`), auto-detects COM ports by VID/PID, handles reconnection via `pkg/reconnect`
-- **session_map.go** - Maps slider IDs to audio sessions. Handles special targets like `master`, `system`, `mic`, `deej.current`, `deej.unmapped`, OBS inputs (`deej.obs:<inputName>`) and Discord targets. Reads `config.Values().ActiveMapping()` fresh on every slider event rather than caching the mapping. Config reloads rebuild the cached unmapped-session list and reset serial slider tracking, so the next valid serial line re-emits all slider values with the new mapping, even without a physical slider move
-- **config.go** - Config lifecycle: YAML loading (`go.yaml.in/yaml/v3`) with hot-reload via a self-managed fsnotify watcher (trailing-edge debounce), plus GUI save (`SaveUserSettings` → `normalize` → atomic write → reload). Publishes an immutable `*Settings` snapshot atomically on every (re)load (read via `Values()`); reload signals to consumers are buffered and coalesced. A reload that produces an unchanged snapshot skips the toast/notify (so a GUI save's own file event, and comment-only hand edits, are no-ops)
-- **config_model.go** - The config schema. `Settings` is the single source of truth (yaml tags = file keys, json tags = GUI wire format). Adding a setting = one field here (+ default in `defaultSettings`, + a rule in `normalize` if it needs validation) + a frontend control. `normalize` is the single rule set behind both policies: it canonicalizes in place and returns the list of invalid values — GUI saves reject when that list is non-empty, file loads apply the fixes and log them. `applyLegacyKeys` reads the legacy flat keys — the com ones (`com_port`, `baud_rate`, `com_vid`, `com_pid`) and the pre-profiles top-level `slider_mapping` — before the main decode, so an explicit `com:`/`profiles:` section wins; saves only ever write the new form. Slider mappings live on `Profile`, one per named profile, with `Settings.ActiveMapping()` resolving the active one; `SliderMappings` owns `get`, `clone` and `normalized`. Saves fully regenerate the file (comments, key order and unknown keys are not preserved)
-- **settings_service.go** - Wails service (`SettingsService`) exposing config, serial-port enumeration, live status, and audio-session info to the settings frontend
-- **obs.go** - OBS websocket integration (`goobs`) for controlling OBS input volumes; reconnects via `pkg/reconnect`
-- **discord.go** + **discord_ipc_{windows,other}.go** - Discord integration over the client's local RPC connection, for per-user voice volumes and the user's own input/output levels. The IPC frame codec (8-byte LE header + JSON) and the OAuth token exchange are hand-rolled on stdlib. The transport is the one platform split: on Windows the pipe **must** be opened with `winio.DialPipe` (overlapped), not `os.OpenFile` — a synchronous handle serializes I/O, so the read loop's blocking `ReadFile` deadlocks any concurrent write and every command hangs forever; elsewhere it's a plain unix socket. Reconnects via `pkg/reconnect`. Discord gates the `rpc.voice.*` scopes to an application's owner, so credentials are user-supplied (`discord.client_id`/`client_secret`) rather than shipped. The reconnect loop only ever does the silent path; the interactive `AUTHORIZE` lives in `Link()` behind a GUI button, so retries can't spawn consent popups. The resulting token is persisted in `discord_token.json` next to the config, deliberately not inside it. Volume commands are throttled (dedupe + 100ms flush) to stay under Discord's RPC rate limit during a slider sweep. The voice-channel roster is kept live by `VOICE_STATE_CREATE/UPDATE/DELETE` subscriptions (re-pointed on `VOICE_CHANNEL_SELECT`, since they're channel-scoped) with a 30s reconcile as the safety net for dropped events; a single `eventLoop` goroutine owns every roster write, and roster changes reach the GUI as a `deej:discord` event rather than by polling. Events are handed to that loop through a buffered channel and dropped when it's full — the read loop must never block, because the event handler issues requests that same loop has to answer
-- **tray.go** - System tray icon and settings window, built on **Wails v3** (`wailsapp/wails/v3`). Hosts the frontend assets, registers the Wails service, and pushes live events to the settings window (`deej:sliders`, `deej:state`, `deej:config`, `deej:sessions`, `deej:discord`). Also owns the Profiles submenu (rebuilt on every config reload) and the per-profile global hotkeys (`app.GlobalShortcut`, re-registered only when the accelerator set actually changes). Lives only in the non-headless build, so headless daemons have no hotkeys
+- **cmd/deej/** owns CLI parsing, version linker variables, winres resources, and build-tagged GUI/headless bootstrap. Only the GUI bootstrap imports `internal/desktop`.
+- **internal/app/** composes core services, localization, logging, crash reporting and lifecycle. It does not import Wails, desktop or frontend assets. Load initial settings and resolve language before creating consumers; register mixer and independent GUI subscriptions before starting serial/OBS/Discord.
+- **internal/config/** owns the single `Settings` model (`model.go`, `defaults.go`, `normalize.go`, `mapping.go`, `legacy.go`) and store/watcher (`store.go`, `watch.go`). `Values()` publishes immutable snapshots atomically. Read fresh settings per operation; never retain a constructor snapshot. `SliderMappings.Get` returns copied targets. Store outcomes are localized by app callbacks.
+- **internal/audio/** owns `Session`, `SessionFinder`, events and Windows Core Audio / Linux PulseAudio implementations. Session removal handlers run synchronously before resources are released. Master/system/mic identifiers belong here.
+- **internal/serial/** separates connections/subscriptions (`client.go`), CRLF parsing/normalization (`protocol.go`), filtering (`noise.go`) and port enumeration (`ports.go`). It receives settings, logging, notification callbacks and verbose flag. Reload resets tracking so the next valid line re-emits every value without physical movement.
+- **internal/mixer/** routes sliders to targets (`mixer.go`, `targets.go`) through injected interfaces. It reads `Values().ActiveMapping()` per event and refreshes the unmapped-session cache on reload. It owns `SessionInfo`; desktop converts it to a DTO.
+- **internal/integrations/obs/** owns websocket connections and cubic/linear input-volume conversion.
+- **internal/integrations/discord/** separates client lifecycle, RPC, auth/token persistence, roster, volume throttling and platform IPC. Its public volume API takes Discord-local targets; mixer parses config strings. App provides the token path and current mapped slider volumes for restoration.
+- **internal/desktop/** owns Wails, the single settings window, tray, profile hotkeys, service, DTOs and GUI events. Preserve `deej:sliders`, `deej:state`, `deej:config`, `deej:sessions`, `deej:discord` payloads. Re-register shortcuts only when accelerators change. `tray.SetMenu` dispatches to the main thread internally: call it off the main thread when updating a running tray, then reapply the changed menu tree.
+- **internal/platform/** owns foreground/fullscreen windows, process information/icons, autorun, signals and opening files. Low-level Windows APIs live in `internal/platform/win`.
+- **internal/i18n/** owns detection/fallback and embedded `lang/active.{en,ru}.toml` catalogs.
+- **internal/reconnect/** provides generation-scoped recovery for serial/OBS/Discord/PulseAudio. Start/Stop are serialized; Close must unblock Watch. Preserve dial parameters per generation and re-check config on adoption; stale errors must never end newer connections.
+- **internal/atomicfile/** shares config/token writes: temporary file beside destination, mode 0600, rename and failure cleanup.
+- **internal/notify/** and **internal/icon/** own notifications and embedded assets.
+
+Configuration normalization stays private. GUI saves reject invalid values; file loads correct and log them. Preserve legacy keys, trailing-edge debounce, coalescing, serialized read-modify-write, unchanged-reload suppression and whole-file YAML regeneration.
+
+Discord Windows IPC must use `winio.DialPipe` (overlapped); synchronous handles deadlock concurrent reads/writes. Authorize only through explicit `Link()`, never reconnect retries. Credentials are user-supplied; `discord_token.json` stays beside config, outside YAML. One event loop owns roster writes, with channel-scoped subscriptions and 30-second reconciliation. Read-loop event handoff is buffered/nonblocking because handlers issue RPC requests. Volumes dedupe and flush every 100 ms. Preserve replay/invalidation after connection, join/rejoin, channel changes and reconciliation even without slider movement. Participant conversion is cubic or linear 0-100; own input/output always use linear 0-100.
+
+Each mixer/desktop consumer has a separate channel; sharing one distributes instead of broadcasting. Serial sends synchronously through unbuffered channels. Stop producers while consumers still receive the final serial state, then stop consumers and release audio. Repeated quit requests must not run duplicate Stop operations or close channels twice. The `headless` tag excludes Wails/desktop/frontend; `DEEJ_NO_TRAY_ICON` retains the GUI binary's runtime dependencies.
 
 ### Settings GUI (frontend/)
 
-A **Svelte 5 + Vite + TypeScript** single-page app, styled with **Tailwind CSS v4** and **bits-ui** components (icons from `@lucide/svelte`). It renders a live mixer plus a settings dialog with a frameless titlebar. Built to `frontend/dist` and embedded into the Go binary via `frontend/embed.go`. Wails-generated Go↔TS bindings live in `frontend/bindings/`. Frontend i18n is separate from the Go i18n and uses **Paraglide JS** (`@inlang/paraglide-js`): message catalogs live in `frontend/messages/{en,ru}.json`, configured by `frontend/project.inlang/settings.json`, and the Vite plugin compiles them to typed message functions under `frontend/src/paraglide/` (git-ignored, regenerated on build). Components call `m.<key>()` from `../paraglide/messages`; `main.ts` mirrors the Go-resolved language into Paraglide's in-memory locale via `setLocale(..., { reload: false })` (the `globalVariable` strategy).
+Svelte 5 + Vite + TypeScript, Tailwind CSS v4, bits-ui and `@lucide/svelte`. Mixer views/helpers live in `src/features/mixer/`; settings dialog and sections in `src/features/settings/`. Shared UI stays in `src/components/ui/`, Titlebar in `src/components/`. `src/lib/api.ts` is the single generated bindings/types access point; shared state, profiles and tick also live in lib. Window controls use Wails runtime directly.
 
-### Platform-Specific Code
+Frontend output is embedded by `frontend/embed.go`. Keep `frontend/dist/.gitkeep` and Vite's recreation of it. Bindings live in `frontend/bindings/`. After public Go model/service package changes, run `wails3 task generate:bindings` scanning `cmd` and `internal` together, rebuild frontend and exercise real GetAppInfo/GetSettings/temporary-config SaveSettings calls. Fully qualified Go names determine `Call.ByID`: stale bindings can compile but fail at runtime.
 
-Audio session management is platform-specific:
-- **session_finder_windows.go** - Uses Windows Core Audio API (go-wca) to enumerate and control audio sessions
-- **session_finder_linux.go** - Uses PulseAudio (jfreymuth/pulse)
-- **session_windows.go / session_linux.go** - Platform-specific session implementations
-
-Window detection for `deej.current` targets:
-- **pkg/deej/util/util_windows.go** - Win32 API calls for foreground/fullscreen window detection
-- **pkg/win/syscalls_windows.go** - Low-level Windows syscall definitions
-
-### Supporting Packages
-
-- **pkg/reconnect/** - Generic reconnection lifecycle manager shared by the serial, OBS, Discord, and PulseAudio connections (dial → watch → reconnect on failure). See the package doc for the callback contracts
-- **pkg/notify/** - Toast notifications (Windows) and libnotify (Linux)
-- **pkg/icon/** - Embedded tray icon assets (`assets/tray-icon.ico` on Windows, `assets/logo.png` on Linux)
-
-### Internationalization
-
-Go-side i18n uses `nicksnyder/go-i18n` with TOML message catalogs embedded from `pkg/deej/lang/` (`active.en.toml`, `active.ru.toml`). Language resolves from config, falling back to auto-detection; the resolved language is exposed to the GUI.
+Paraglide catalogs are `frontend/messages/{en,ru}.json`; configuration is `frontend/project.inlang/settings.json`. Vite generates ignored `src/paraglide/` modules; components call `m.<key>()`. Initialize app info, platform and locale before mount; `main.ts` mirrors Go language with `setLocale(..., { reload: false })`. Preserve `$state.snapshot`, subscribe-before-fetch, window cleanup, settings drafts across tabs, patch merging, saves against current config and pending-change flush on close.
 
 ### Config Format
 
@@ -155,6 +149,6 @@ The config can be edited by hand (hot-reloaded) or through the settings GUI, whi
 ### Data Flow
 
 1. Arduino sends analog readings over serial as pipe-delimited values
-2. `SerialIO.watch` reads serial lines; `SerialIO.handleLine` validates them against `^\d{1,4}(\|\d{1,4})*\r\n$`, normalizes values, applies inversion and filters noise
-3. Slider move events are emitted to `sessionMap` (and to the tray/GUI as live events)
-4. `sessionMap.handleSliderMoveEvent` resolves targets and adjusts volumes
+2. `serial.Client.watch` reads serial lines; `serial.Client.handleLine` validates them against `^\d{1,4}(\|\d{1,4})*\r\n$`, normalizes values, applies inversion and filters noise
+3. Slider move events are emitted to `mixer.Mixer` (and to the tray/GUI as live events)
+4. `mixer.Mixer.handleSliderMoveEvent` resolves targets and adjusts volumes

@@ -8,20 +8,20 @@ version: "3"
 
 includes:
   windows:
-    taskfile: ./Taskfile.windows.yml
+    taskfile: ./build/tasks/windows.yml
     dir: "{{.ROOT_DIR}}"
     vars: &platformvars
       BIN_DIR: "{{.BIN_DIR}}"
       LDFLAGS: "{{.LDFLAGS}}"
       VERSION_TAG: "{{.VERSION_TAG}}"
   linux:
-    taskfile: ./Taskfile.linux.yml
+    taskfile: ./build/tasks/linux.yml
     dir: "{{.ROOT_DIR}}"
     vars: *platformvars
 
 vars:
   APP_NAME: deej
-  BIN_DIR: build
+  BIN_DIR: bin
   # git-derived build metadata, injected into the binary via ldflags
   GIT_COMMIT:
     sh: git rev-list -1 --abbrev-commit HEAD
@@ -46,7 +46,7 @@ tasks:
   generate:bindings:
     desc: Regenerate the Wails Go->TS bindings (requires the wails3 CLI)
     cmds:
-      - wails3 generate bindings -ts -silent ./pkg/...
+      - wails3 generate bindings -ts -silent ./cmd/... ./internal/...
 
   generate:resources:
     desc: Regenerate the Windows icon and manifest resources

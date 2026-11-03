@@ -1,7 +1,7 @@
 import { mount } from "svelte";
 import App from "./App.svelte";
 import { setLocale } from "./paraglide/runtime";
-import { AppInfoDTO, SettingsService } from "../bindings/github.com/nik9play/deej/pkg/deej";
+import { AppInfoDTO, SettingsService } from "./lib/api";
 import "./app.css";
 
 let appInfo: AppInfoDTO | null = null;

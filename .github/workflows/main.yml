@@ -70,8 +70,8 @@ jobs:
 
       - name: Rename binaries (amd64)
         run: |
-          Rename-Item build/deej-release.exe deej-windows-amd64.exe
-          Rename-Item build/deej-dev.exe deej-windows-amd64-dev.exe
+          Rename-Item bin/deej-release.exe deej-windows-amd64.exe
+          Rename-Item bin/deej-dev.exe deej-windows-amd64-dev.exe
 
       - name: Build deej (arm64)
         run: task windows:build:all
@@ -80,8 +80,8 @@ jobs:
 
       - name: Rename binaries (arm64)
         run: |
-          Rename-Item build/deej-release.exe deej-windows-arm64.exe
-          Rename-Item build/deej-dev.exe deej-windows-arm64-dev.exe
+          Rename-Item bin/deej-release.exe deej-windows-arm64.exe
+          Rename-Item bin/deej-dev.exe deej-windows-arm64-dev.exe
 
       # bundles both binaries into a single universal installer
       - name: Build installer
@@ -91,7 +91,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: deej-windows
-          path: build/
+          path: bin/
 
   # The purego GUI backend lets one runner cross-compile both architectures.
   build-linux:
@@ -130,8 +130,8 @@ jobs:
 
       - name: Rename binaries (amd64)
         run: |
-          mv build/deej-release build/deej-linux-amd64
-          mv build/deej-dev build/deej-linux-amd64-dev
+          mv bin/deej-release bin/deej-linux-amd64
+          mv bin/deej-dev bin/deej-linux-amd64-dev
 
       - name: Build deej (arm64)
         run: task linux:build:all
@@ -140,14 +140,14 @@ jobs:
 
       - name: Rename binaries (arm64)
         run: |
-          mv build/deej-release build/deej-linux-arm64
-          mv build/deej-dev build/deej-linux-arm64-dev
+          mv bin/deej-release bin/deej-linux-arm64
+          mv bin/deej-dev bin/deej-linux-arm64-dev
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: deej-linux
-          path: build/deej-linux-*
+          path: bin/deej-linux-*
 
   # the headless build compiles Wails out (-tags headless), so it is cgo-free and
   # a single runner cross-compiles every arch without GTK/WebKit or Node
@@ -174,15 +174,15 @@ jobs:
       - name: Build deej (headless, amd64 + arm64)
         run: |
           GOARCH=amd64 task linux:build:headless
-          mv build/deej-headless build/deej-linux-amd64-headless
+          mv bin/deej-headless bin/deej-linux-amd64-headless
           GOARCH=arm64 task linux:build:headless
-          mv build/deej-headless build/deej-linux-arm64-headless
+          mv bin/deej-headless bin/deej-linux-arm64-headless
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: deej-linux-headless
-          path: build/
+          path: bin/
 
   release:
     name: Create release draft

@@ -1,5 +1,5 @@
 import { Events } from "@wailsio/runtime";
-import { DiscordUserDTO, SessionInfoDTO, Settings, SettingsService } from "../../bindings/github.com/nik9play/deej/pkg/deej";
+import { DiscordUserDTO, SessionInfoDTO, Settings, SettingsService } from "./api";
 import { tickOnChange } from "./tick";
 
 // live application state, fed by wails events from the Go side

@@ -1,4 +1,4 @@
-import type { Profile, Settings, SliderMappings } from "../../bindings/github.com/nik9play/deej/pkg/deej";
+import type { Profile, Settings, SliderMappings } from "./api";
 
 // mirrors Settings.ActiveMapping on the go side: normalized settings always
 // resolve by name, the first-profile fallback only covers the brief moment

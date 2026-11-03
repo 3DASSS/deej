@@ -18,6 +18,7 @@ dev_mode:
       - .git
       - node_modules
       - frontend   # frontend changes are handled by Vite, not the Go watcher
+      - bin
       - build
       - releases
     file:

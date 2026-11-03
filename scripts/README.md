@@ -1,8 +1,11 @@
 ## Build automation
 
-Builds are defined in the repository Taskfiles and can be run through either
+Builds are defined in `Taskfile.yml` and `build/tasks/{windows,linux}.yml` and can be run through either
 the Wails CLI (`wails3 task <name>`) or the standalone Task CLI (`task <name>`).
 Run `wails3 task --list` from the repository root to see all available tasks.
+Build configuration stays in `build/`; binaries/installers go to `bin/`.
+The entry point and winres inputs are in `cmd/deej/`; embedded icons live in
+`internal/icon/assets/`.
 
 The files remaining under `scripts/` are inputs to build tasks rather than
 executable build wrappers:

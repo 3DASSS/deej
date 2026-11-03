@@ -10,6 +10,9 @@ deej-dev
 deej-release
 build/*
 !build/config.yml
+!build/tasks/
+!build/tasks/*.yml
+bin/
 releases/
 *.bin
 logs/

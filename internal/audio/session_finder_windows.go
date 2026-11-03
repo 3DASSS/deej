@@ -1,0 +1,871 @@
+package audio
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"reflect"
+	"runtime"
+	"strings"
+	"sync"
+	"syscall"
+	"time"
+	"unsafe"
+
+	ole "github.com/go-ole/go-ole"
+	wca "github.com/moutend/go-wca/pkg/wca"
+	"go.uber.org/zap"
+
+	"github.com/nik9play/deej/internal/platform/win"
+)
+
+type wcaSessionFinder struct {
+	lifecycle     sync.Mutex
+	released      bool
+	workers       sync.WaitGroup
+	logger        *zap.SugaredLogger
+	sessionLogger *zap.SugaredLogger
+
+	eventCtx *ole.GUID // needed for some session actions to successfully notify other audio consumers
+
+	// needed for device change notifications
+	mmDeviceEnumerator   *wca.IMMDeviceEnumerator
+	mmNotificationClient *win.IMMNotificationClient
+
+	// guards the per-flow debounce timestamps; the default device changed
+	// callback can be invoked concurrently from multiple COM threads
+	debounceMu              sync.Mutex
+	lastDefaultOutputChange time.Time
+	lastDefaultInputChange  time.Time
+
+	// workChan receives functions from IMMNotificationClient callbacks to be executed
+	// on the worker goroutine (which owns the COM apartment)
+	workChan chan func()
+
+	mu sync.RWMutex
+
+	// our master input and output sessions
+	masterOut *masterSession
+	masterIn  *masterSession
+
+	// per-device session managers (persistent)
+	deviceManagers map[string]*deviceSessionManager
+
+	// tracked sessions with their event callbacks
+	trackedSessions map[string]*trackedSession
+
+	// receives session events synchronously; set once by Start before the
+	// worker goroutine runs
+	handler SessionEventHandler
+	started bool
+
+	workerCtx    context.Context
+	workerCancel context.CancelFunc
+}
+
+// deviceSessionManager holds persistent references for a single audio device
+type deviceSessionManager struct {
+	deviceID            string
+	device              *wca.IMMDevice
+	sessionManager      *wca.IAudioSessionManager2
+	sessionNotification *win.IAudioSessionNotification
+	masterSession       *masterSession // device-specific master volume session
+	isOutput            bool           // only output devices have process sessions
+}
+
+// trackedSession holds a session with its registered event callback
+type trackedSession struct {
+	session       Session
+	eventCallback *win.IAudioSessionEvents
+	control       *wca.IAudioSessionControl
+}
+
+const (
+	// there's no real mystery here, it's just a random GUID
+	myteriousGUID = "{1ec920a1-7db8-44ba-9779-e5d28ed9f330}"
+
+	// the notification client will call this multiple times in quick succession based on the
+	// default device's assigned media roles, so we need to filter out the extraneous calls
+	minDefaultDeviceChangeThreshold = 100 * time.Millisecond
+
+	// prefix for device sessions in logger
+	deviceSessionFormat = "device.%s"
+
+	// buffer size for the device work channel
+	deviceWorkChanSize = 50
+
+	// session IDs for the default device master sessions
+	masterOutputSessionID = "master_output"
+	masterInputSessionID  = "master_input"
+)
+
+// NewSessionFinder constructs the platform audio-session discovery service.
+func NewSessionFinder(logger *zap.SugaredLogger) (SessionFinder, error) {
+	ctx, cancel := context.WithCancel(context.Background())
+
+	sf := &wcaSessionFinder{
+		logger:          logger.Named("session_finder"),
+		sessionLogger:   logger.Named("sessions"),
+		eventCtx:        ole.NewGUID(myteriousGUID),
+		deviceManagers:  make(map[string]*deviceSessionManager),
+		trackedSessions: make(map[string]*trackedSession),
+		workChan:        make(chan func(), deviceWorkChanSize),
+		workerCtx:       ctx,
+		workerCancel:    cancel,
+	}
+
+	sf.logger.Debug("Created WCA session finder instance")
+
+	return sf, nil
+}
+
+// Start begins session discovery, delivering events synchronously to handler
+func (sf *wcaSessionFinder) Start(handler SessionEventHandler) error {
+	sf.lifecycle.Lock()
+	defer sf.lifecycle.Unlock()
+	if sf.released {
+		return errors.New("session finder already released")
+	}
+	if sf.started {
+		return errors.New("session finder already started")
+	}
+	sf.started = true
+	sf.handler = handler
+
+	sf.workers.Go(func() { sf.sessionFinderWorker(sf.workerCtx) })
+
+	return nil
+}
+
+// I noticed that deej crashes with E_INVALIDARG when trying to run it in VM over RDP
+// It turned out that the problem was an incorrectly passed ctx argument in the go-wca library
+func mmdActivateWorkaround(mmd *wca.IMMDevice, refIID *ole.GUID, ctx uint32, _, obj interface{}) (err error) {
+	objValue := reflect.ValueOf(obj).Elem()
+	hr, _, _ := syscall.SyscallN(
+		mmd.VTable().Activate,
+		uintptr(unsafe.Pointer(mmd)),
+		uintptr(unsafe.Pointer(refIID)),
+		uintptr(ctx),
+		0,
+		objValue.Addr().Pointer())
+	if hr != 0 {
+		err = ole.NewError(hr)
+	}
+	return
+}
+
+func (sf *wcaSessionFinder) initializeCOMLoop(ctx context.Context) error {
+	for {
+		select {
+		case <-ctx.Done():
+			sf.logger.Info("COM initializing stopping")
+			return errors.New("com initializing stopped")
+		default:
+			err := ole.CoInitializeEx(0, ole.COINIT_MULTITHREADED)
+
+			if err == nil {
+				return nil
+			}
+
+			const eFalse = 1
+			oleError := &ole.OleError{}
+
+			if errors.As(err, &oleError) {
+				if oleError.Code() == eFalse {
+					return nil
+				}
+				sf.logger.Warnw("Failed to call CoInitializeEx. Retrying...",
+					"isOleError", true,
+					"error", err,
+					"oleError", oleError)
+
+				time.Sleep(2 * time.Second)
+				continue
+			}
+			sf.logger.Warnw("Failed to call CoInitializeEx. Retrying...",
+				"isOleError", false,
+				"error", err,
+				"oleError", nil)
+
+			time.Sleep(2 * time.Second)
+		}
+	}
+}
+
+func (sf *wcaSessionFinder) sessionFinderWorker(ctx context.Context) {
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+
+	if err := sf.initializeCOMLoop(ctx); err != nil {
+		return
+	}
+	sf.logger.Info("COM initialized for session finder")
+	defer ole.CoUninitialize()
+
+	// all COM objects are owned by this goroutine, so cleanup must run here on
+	// every exit path (and before CoUninitialize)
+	defer sf.cleanup()
+
+	// Initialize device enumerator and register for device notifications
+	if err := sf.initializeDeviceEnumerator(); err != nil {
+		sf.logger.Errorw("Failed to initialize device enumerator", "error", err)
+		return
+	}
+	// Initialize all device managers and register for session notifications
+	if err := sf.initializeAllDeviceManagers(); err != nil {
+		sf.logger.Warnw("Failed to initialize device managers", "error", err)
+	}
+
+	// Initialize master sessions
+	sf.initializeMasterSessions()
+
+	sf.logger.Debug("Event-driven session finder initialized")
+
+	// Process work dispatched from IMMNotificationClient callbacks.
+	for {
+		select {
+		case <-ctx.Done():
+			sf.logger.Info("Session finder worker stopping")
+			return
+		case work := <-sf.workChan:
+			work()
+		}
+	}
+}
+
+func (sf *wcaSessionFinder) initializeDeviceEnumerator() error {
+	if err := wca.CoCreateInstance(
+		wca.CLSID_MMDeviceEnumerator,
+		0,
+		wca.CLSCTX_ALL,
+		wca.IID_IMMDeviceEnumerator,
+		&sf.mmDeviceEnumerator,
+	); err != nil {
+		return fmt.Errorf("create device enumerator: %w", err)
+	}
+
+	// Register for device change notifications
+	// Using our own IMMNotificationClient implementation to fix go-wca bug
+	// where dwNewState is always passed as 0
+	callback := win.IMMNotificationClientCallback{
+		OnDefaultDeviceChanged: sf.defaultDeviceChangedCallback,
+		OnDeviceAdded:          sf.deviceAddedCallback,
+		OnDeviceRemoved:        sf.deviceRemovedCallback,
+		OnDeviceStateChanged:   sf.deviceStateChangedCallback,
+	}
+
+	sf.mmNotificationClient = win.NewIMMNotificationClient(callback)
+
+	if err := sf.mmDeviceEnumerator.RegisterEndpointNotificationCallback(sf.mmNotificationClient.ToWCA()); err != nil {
+		return fmt.Errorf("register endpoint notification callback: %w", err)
+	}
+
+	return nil
+}
+
+func (sf *wcaSessionFinder) initializeAllDeviceManagers() error {
+	var deviceCollection *wca.IMMDeviceCollection
+
+	if err := sf.mmDeviceEnumerator.EnumAudioEndpoints(wca.EAll, wca.DEVICE_STATE_ACTIVE, &deviceCollection); err != nil {
+		return fmt.Errorf("enumerate audio endpoints: %w", err)
+	}
+	defer deviceCollection.Release()
+
+	var deviceCount uint32
+	if err := deviceCollection.GetCount(&deviceCount); err != nil {
+		return fmt.Errorf("get device count: %w", err)
+	}
+
+	for i := uint32(0); i < deviceCount; i++ {
+		var device *wca.IMMDevice
+		if err := deviceCollection.Item(i, &device); err != nil {
+			sf.logger.Warnw("Failed to get device from collection", "index", i, "error", err)
+			continue
+		}
+
+		if err := sf.createDeviceManager(device); err != nil {
+			sf.logger.Warnw("Failed to create device manager", "index", i, "error", err)
+			device.Release()
+		}
+	}
+
+	return nil
+}
+
+func (sf *wcaSessionFinder) initializeMasterSessions() {
+	sf.refreshMasterOutput()
+	sf.refreshMasterInput()
+}
+
+// notify delivers a session event to the handler synchronously
+func (sf *wcaSessionFinder) notify(event SessionEvent) {
+	sf.handler(event)
+}
+
+// dispatchWork sends fn to the worker goroutine for execution on the COM-initialized thread.
+func (sf *wcaSessionFinder) dispatchWork(fn func()) {
+	select {
+	case sf.workChan <- fn:
+	default:
+		sf.logger.Warn("Device work channel full, dropping device event")
+	}
+}
+
+func (sf *wcaSessionFinder) createDeviceManager(device *wca.IMMDevice) error {
+	// Get device ID
+	var deviceIDStr string
+	if err := device.GetId(&deviceIDStr); err != nil {
+		return fmt.Errorf("get device ID: %w", err)
+	}
+
+	// Check if we already have a manager for this device
+	sf.mu.RLock()
+	if _, exists := sf.deviceManagers[deviceIDStr]; exists {
+		sf.mu.RUnlock()
+		device.Release()
+		return nil
+	}
+	sf.mu.RUnlock()
+
+	// Get endpoint type to determine if it's an output device
+	dispatch, err := device.QueryInterface(wca.IID_IMMEndpoint)
+	if err != nil {
+		return fmt.Errorf("query IMMEndpoint: %w", err)
+	}
+	endpoint := (*wca.IMMEndpoint)(unsafe.Pointer(dispatch))
+	defer endpoint.Release()
+
+	var dataFlow uint32
+	if err := endpoint.GetDataFlow(&dataFlow); err != nil {
+		return fmt.Errorf("get data flow: %w", err)
+	}
+
+	isOutput := dataFlow == wca.ERender
+
+	// Activate IAudioSessionManager2
+	var sessionManager *wca.IAudioSessionManager2
+	if err := mmdActivateWorkaround(device, wca.IID_IAudioSessionManager2, wca.CLSCTX_ALL, nil, &sessionManager); err != nil {
+		return fmt.Errorf("activate session manager: %w", err)
+	}
+
+	dm := &deviceSessionManager{
+		deviceID:       deviceIDStr,
+		device:         device,
+		sessionManager: sessionManager,
+		isOutput:       isOutput,
+	}
+
+	// Create device master session
+	deviceMasterSession, err := sf.createDeviceMasterSession(device, isOutput)
+	if err != nil {
+		sf.logger.Warnw("Failed to create device master session", "deviceID", deviceIDStr, "error", err)
+	} else {
+		dm.masterSession = deviceMasterSession
+		// Emit event for device master session
+		sf.notify(SessionEvent{Type: SessionEventAdded, Session: deviceMasterSession, SessionID: "device_" + deviceIDStr})
+	}
+
+	// Only register for session notifications on output devices (they have process sessions)
+	if isOutput {
+		notificationCallback := win.IAudioSessionNotificationCallback{
+			OnSessionCreated: func(newSession *wca.IAudioSessionControl) error {
+				return sf.onSessionCreated(deviceIDStr, newSession)
+			},
+		}
+
+		dm.sessionNotification = win.NewIAudioSessionNotification(notificationCallback)
+
+		if err := sessionManager.RegisterSessionNotification(dm.sessionNotification.ToWCA()); err != nil {
+			sf.logger.Warnw("Failed to register session notification", "deviceID", deviceIDStr, "error", err)
+		} else {
+			sf.logger.Debugw("Registered session notification for device", "deviceID", deviceIDStr)
+		}
+
+		// Enumerate existing sessions on this device
+		sf.enumerateDeviceSessions(dm)
+	}
+
+	sf.mu.Lock()
+	sf.deviceManagers[deviceIDStr] = dm
+	sf.mu.Unlock()
+
+	sf.logger.Debugw("Created device manager", "deviceID", deviceIDStr, "isOutput", isOutput)
+
+	return nil
+}
+
+func (sf *wcaSessionFinder) enumerateDeviceSessions(dm *deviceSessionManager) {
+	var sessionEnumerator *wca.IAudioSessionEnumerator
+	if err := dm.sessionManager.GetSessionEnumerator(&sessionEnumerator); err != nil {
+		sf.logger.Warnw("Failed to get session enumerator", "deviceID", dm.deviceID, "error", err)
+		return
+	}
+	defer sessionEnumerator.Release()
+
+	var sessionCount int
+	if err := sessionEnumerator.GetCount(&sessionCount); err != nil {
+		sf.logger.Warnw("Failed to get session count", "deviceID", dm.deviceID, "error", err)
+		return
+	}
+
+	for i := 0; i < sessionCount; i++ {
+		var audioSessionControl *wca.IAudioSessionControl
+		if err := sessionEnumerator.GetSession(i, &audioSessionControl); err != nil {
+			sf.logger.Warnw("Failed to get session", "deviceID", dm.deviceID, "index", i, "error", err)
+			continue
+		}
+
+		if err := sf.addSessionFromControl(dm.deviceID, audioSessionControl); err != nil {
+			sf.logger.Debugw("Failed to add session from control", "deviceID", dm.deviceID, "index", i, "error", err)
+		}
+	}
+}
+
+func (sf *wcaSessionFinder) onSessionCreated(deviceID string, newSession *wca.IAudioSessionControl) error {
+	sf.logger.Debugw("New session created callback", "deviceID", deviceID)
+
+	// AddRef because Windows will release the passed reference after callback returns.
+	// addSessionFromControl takes ownership of this reference and releases it
+	// on every error path, so no release is needed here
+	newSession.AddRef()
+
+	sf.dispatchWork(func() {
+		if err := sf.addSessionFromControl(deviceID, newSession); err != nil {
+			sf.logger.Debugw("Failed to add new session", "deviceID", deviceID, "error", err)
+		}
+	})
+
+	return nil
+}
+
+// addSessionFromControl takes ownership of audioSessionControl: on success it is
+// kept in trackedSessions, on any error (or duplicate) it is released here
+func (sf *wcaSessionFinder) addSessionFromControl(deviceID string, audioSessionControl *wca.IAudioSessionControl) error {
+	// Query IAudioSessionControl2
+	dispatch, err := audioSessionControl.QueryInterface(wca.IID_IAudioSessionControl2)
+	if err != nil {
+		audioSessionControl.Release()
+		return fmt.Errorf("query IAudioSessionControl2: %w", err)
+	}
+	audioSessionControl2 := (*wca.IAudioSessionControl2)(unsafe.Pointer(dispatch))
+
+	// Get PID
+	var pid uint32
+	if err := audioSessionControl2.GetProcessId(&pid); err != nil {
+		isSystemSoundsErr := audioSessionControl2.IsSystemSoundsSession()
+		if isSystemSoundsErr != nil && !strings.Contains(err.Error(), "143196173") {
+			audioSessionControl2.Release()
+			audioSessionControl.Release()
+			return fmt.Errorf("get process ID: %w", err)
+		}
+	}
+
+	// Query ISimpleAudioVolume
+	dispatch, err = audioSessionControl2.QueryInterface(wca.IID_ISimpleAudioVolume)
+	if err != nil {
+		audioSessionControl2.Release()
+		audioSessionControl.Release()
+		return fmt.Errorf("query ISimpleAudioVolume: %w", err)
+	}
+	simpleAudioVolume := (*wca.ISimpleAudioVolume)(unsafe.Pointer(dispatch))
+
+	// Create session
+	session, err := newWCASession(sf.sessionLogger, audioSessionControl2, simpleAudioVolume, pid, sf.eventCtx)
+	if err != nil {
+		audioSessionControl2.Release()
+		simpleAudioVolume.Release()
+		audioSessionControl.Release()
+
+		if !errors.Is(err, errNoSuchProcess) {
+			return fmt.Errorf("create session: %w", err)
+		}
+		return errNoSuchProcess
+	}
+
+	sessionID := fmt.Sprintf("%s_%s_%d", deviceID, session.Key(), pid)
+
+	// Check if session already exists
+	sf.mu.Lock()
+	if _, exists := sf.trackedSessions[sessionID]; exists {
+		sf.mu.Unlock()
+		session.Release()
+		audioSessionControl.Release()
+		return nil
+	}
+	sf.mu.Unlock()
+
+	// Register session events callback
+	eventsCallback := win.IAudioSessionEventsCallback{
+		OnStateChanged: func(newState uint32) error {
+			if newState == wca.AudioSessionStateExpired {
+				sf.logger.Debugw("Session state changed to expired", "sessionID", sessionID)
+				sf.dispatchWork(func() { sf.removeSession(sessionID) })
+			}
+			return nil
+		},
+		OnSessionDisconnected: func(disconnectReason uint32) error {
+			sf.logger.Debugw("Session disconnected", "sessionID", sessionID, "reason", disconnectReason)
+			sf.dispatchWork(func() { sf.removeSession(sessionID) })
+			return nil
+		},
+	}
+
+	sessionEvents := win.NewIAudioSessionEvents(eventsCallback)
+
+	if err := audioSessionControl.RegisterAudioSessionNotification(sessionEvents.ToWCA()); err != nil {
+		sf.logger.Warnw("Failed to register audio session notification", "sessionID", sessionID, "error", err)
+	}
+
+	sf.mu.Lock()
+	sf.trackedSessions[sessionID] = &trackedSession{
+		session:       session,
+		eventCallback: sessionEvents,
+		control:       audioSessionControl,
+	}
+	sf.mu.Unlock()
+
+	sf.notify(SessionEvent{Type: SessionEventAdded, Session: session, SessionID: sessionID})
+
+	sf.logger.Debugw("Added tracked session", "sessionID", sessionID, "key", session.Key())
+	return nil
+}
+
+func (sf *wcaSessionFinder) removeSession(sessionID string) {
+	sf.mu.Lock()
+	tracked, exists := sf.trackedSessions[sessionID]
+	if !exists {
+		sf.mu.Unlock()
+		return
+	}
+	delete(sf.trackedSessions, sessionID)
+	sf.mu.Unlock()
+
+	// Unregister event callback
+	if tracked.control != nil && tracked.eventCallback != nil {
+		if err := tracked.control.UnregisterAudioSessionNotification(tracked.eventCallback.ToWCA()); err != nil {
+			sf.logger.Debugw("Failed to unregister audio session notification", "sessionID", sessionID, "error", err)
+		}
+		tracked.control.Release()
+	}
+
+	// once the handler returns, the session map can no longer reach this
+	// session, so releasing its COM interfaces is safe
+	sf.notify(SessionEvent{Type: SessionEventRemoved, SessionID: sessionID, Session: tracked.session})
+	tracked.session.Release()
+
+	sf.logger.Debugw("Removed tracked session", "sessionID", sessionID)
+}
+
+func (sf *wcaSessionFinder) removeDeviceManager(deviceID string) {
+	sf.mu.Lock()
+	dm, exists := sf.deviceManagers[deviceID]
+	if !exists {
+		sf.mu.Unlock()
+		return
+	}
+	delete(sf.deviceManagers, deviceID)
+	sf.mu.Unlock()
+
+	// Remove all sessions associated with this device
+	sf.mu.RLock()
+	sessionsToRemove := make([]string, 0)
+	for sessionID := range sf.trackedSessions {
+		if strings.HasPrefix(sessionID, deviceID+"_") {
+			sessionsToRemove = append(sessionsToRemove, sessionID)
+		}
+	}
+	sf.mu.RUnlock()
+
+	for _, sessionID := range sessionsToRemove {
+		sf.removeSession(sessionID)
+	}
+
+	// Cleanup device manager
+	if dm.sessionNotification != nil && dm.sessionManager != nil {
+		if err := dm.sessionManager.UnregisterSessionNotification(dm.sessionNotification.ToWCA()); err != nil {
+			sf.logger.Debugw("Failed to unregister session notification", "deviceID", deviceID, "error", err)
+		}
+	}
+
+	if dm.masterSession != nil {
+		sf.notify(SessionEvent{Type: SessionEventRemoved, Session: dm.masterSession, SessionID: "device_" + deviceID})
+		dm.masterSession.Release()
+		dm.masterSession = nil
+	}
+	if dm.sessionManager != nil {
+		dm.sessionManager.Release()
+	}
+	if dm.device != nil {
+		dm.device.Release()
+	}
+
+	sf.logger.Debugw("Removed device manager", "deviceID", deviceID)
+}
+
+func (sf *wcaSessionFinder) cleanup() {
+	sf.mu.Lock()
+	deviceIDs := make([]string, 0, len(sf.deviceManagers))
+	for id := range sf.deviceManagers {
+		deviceIDs = append(deviceIDs, id)
+	}
+	sf.mu.Unlock()
+
+	for _, id := range deviceIDs {
+		sf.removeDeviceManager(id)
+	}
+
+	// Remove master sessions
+	sf.mu.Lock()
+	masterOut, masterIn := sf.masterOut, sf.masterIn
+	sf.masterOut, sf.masterIn = nil, nil
+	sf.mu.Unlock()
+
+	if masterOut != nil {
+		sf.notify(SessionEvent{Type: SessionEventRemoved, SessionID: masterOutputSessionID, Session: masterOut})
+		masterOut.Release()
+	}
+	if masterIn != nil {
+		sf.notify(SessionEvent{Type: SessionEventRemoved, SessionID: masterInputSessionID, Session: masterIn})
+		masterIn.Release()
+	}
+
+	if sf.mmDeviceEnumerator != nil {
+		if sf.mmNotificationClient != nil {
+			if err := sf.mmDeviceEnumerator.UnregisterEndpointNotificationCallback(sf.mmNotificationClient.ToWCA()); err != nil {
+				sf.logger.Debugw("Failed to unregister endpoint notification callback", "error", err)
+			}
+		}
+
+		sf.mmDeviceEnumerator.Release()
+		sf.mmDeviceEnumerator = nil
+	}
+}
+
+func (sf *wcaSessionFinder) createDeviceMasterSession(device *wca.IMMDevice, isOutput bool) (*masterSession, error) {
+	// Get device properties for friendly name
+	var propertyStore *wca.IPropertyStore
+	if err := device.OpenPropertyStore(wca.STGM_READ, &propertyStore); err != nil {
+		return nil, fmt.Errorf("open property store: %w", err)
+	}
+	defer propertyStore.Release()
+
+	value := &wca.PROPVARIANT{}
+	if err := propertyStore.GetValue(&wca.PKEY_Device_DeviceDesc, value); err != nil {
+		return nil, fmt.Errorf("get device description: %w", err)
+	}
+	endpointDescription := strings.ToLower(value.String())
+
+	if err := propertyStore.GetValue(&wca.PKEY_Device_FriendlyName, value); err != nil {
+		return nil, fmt.Errorf("get friendly name: %w", err)
+	}
+	endpointFriendlyName := value.String()
+
+	master, err := sf.getMasterSession(device, endpointFriendlyName, fmt.Sprintf(deviceSessionFormat, endpointDescription), isOutput)
+	if err != nil {
+		return nil, err
+	}
+	master.device = true
+
+	return master, nil
+}
+
+func (sf *wcaSessionFinder) getMasterSession(mmDevice *wca.IMMDevice, key string, loggerKey string, isOutput bool) (*masterSession, error) {
+	var audioEndpointVolume *wca.IAudioEndpointVolume
+
+	if err := mmdActivateWorkaround(mmDevice, wca.IID_IAudioEndpointVolume, wca.CLSCTX_ALL, nil, &audioEndpointVolume); err != nil {
+		return nil, fmt.Errorf("activate AudioEndpointVolume: %w", err)
+	}
+
+	master, err := newMasterSession(sf.sessionLogger, audioEndpointVolume, sf.eventCtx, key, loggerKey, isOutput)
+	if err != nil {
+		audioEndpointVolume.Release()
+		return nil, fmt.Errorf("create master session: %w", err)
+	}
+
+	return master, nil
+}
+
+func (sf *wcaSessionFinder) Release() error {
+	// the worker goroutine owns all COM objects (including the device
+	// enumerator) and cleans them up when the context is cancelled
+	sf.lifecycle.Lock()
+	defer sf.lifecycle.Unlock()
+	if sf.released {
+		return nil
+	}
+	sf.released = true
+	sf.workerCancel()
+	sf.workers.Wait()
+
+	sf.logger.Debug("Released WCA session finder instance")
+	return nil
+}
+
+func (sf *wcaSessionFinder) defaultDeviceChangedCallback(
+	flow wca.EDataFlow, role wca.ERole, pwstrDeviceID string,
+) error {
+	refreshOutput := flow == wca.ERender || flow == wca.EAll
+	refreshInput := flow == wca.ECapture || flow == wca.EAll
+
+	// debounce per flow: the extraneous per-role calls this filters out are
+	// always for the same flow, while an input default change right after an
+	// output default change (e.g. unplugging a USB headset) is a real change
+	// that must not be swallowed
+	now := time.Now()
+
+	sf.debounceMu.Lock()
+	if refreshOutput {
+		if sf.lastDefaultOutputChange.Add(minDefaultDeviceChangeThreshold).After(now) {
+			refreshOutput = false
+		} else {
+			sf.lastDefaultOutputChange = now
+		}
+	}
+	if refreshInput {
+		if sf.lastDefaultInputChange.Add(minDefaultDeviceChangeThreshold).After(now) {
+			refreshInput = false
+		} else {
+			sf.lastDefaultInputChange = now
+		}
+	}
+	sf.debounceMu.Unlock()
+
+	if !refreshOutput && !refreshInput {
+		return nil
+	}
+
+	sf.logger.Debugw("Default audio device changed", "flow", flow, "role", role, "deviceID", pwstrDeviceID)
+
+	sf.dispatchWork(func() {
+		if refreshOutput {
+			sf.refreshMasterOutput()
+		}
+
+		if refreshInput {
+			sf.refreshMasterInput()
+		}
+	})
+
+	return nil
+}
+
+func (sf *wcaSessionFinder) refreshMasterOutput() {
+	// Remove old master output session. The handler runs synchronously, so it
+	// must not be called while holding sf.mu
+	sf.mu.Lock()
+	oldMaster := sf.masterOut
+	sf.masterOut = nil
+	sf.mu.Unlock()
+
+	if oldMaster != nil {
+		sf.logger.Debug("Removing old master output session")
+
+		sf.notify(SessionEvent{Type: SessionEventRemoved, SessionID: masterOutputSessionID, Session: oldMaster})
+		oldMaster.Release()
+	}
+
+	// Get new default output device
+	var mmOutDevice *wca.IMMDevice
+	if err := sf.mmDeviceEnumerator.GetDefaultAudioEndpoint(wca.ERender, wca.EConsole, &mmOutDevice); err != nil {
+		sf.logger.Warnw("Failed to get new default output endpoint", "error", err)
+		return
+	}
+	defer mmOutDevice.Release()
+
+	// Create new master output session
+	masterOut, err := sf.getMasterSession(mmOutDevice, MasterSessionName, MasterSessionName, true)
+	if err != nil {
+		sf.logger.Warnw("Failed to create new master output session", "error", err)
+		return
+	}
+
+	sf.mu.Lock()
+	sf.masterOut = masterOut
+	sf.mu.Unlock()
+
+	sf.notify(SessionEvent{Type: SessionEventAdded, Session: masterOut, SessionID: masterOutputSessionID})
+
+	sf.logger.Debug("Refreshed master output session for new default device")
+}
+
+func (sf *wcaSessionFinder) refreshMasterInput() {
+	// Remove old master input session. The handler runs synchronously, so it
+	// must not be called while holding sf.mu
+	sf.mu.Lock()
+	oldMaster := sf.masterIn
+	sf.masterIn = nil
+	sf.mu.Unlock()
+
+	if oldMaster != nil {
+		sf.logger.Debug("Removing old master input session")
+
+		sf.notify(SessionEvent{Type: SessionEventRemoved, SessionID: masterInputSessionID, Session: oldMaster})
+		oldMaster.Release()
+	}
+
+	// Get new default input device
+	var mmInDevice *wca.IMMDevice
+	if err := sf.mmDeviceEnumerator.GetDefaultAudioEndpoint(wca.ECapture, wca.EConsole, &mmInDevice); err != nil {
+		sf.logger.Debug("No default input device available after change")
+		return
+	}
+	defer mmInDevice.Release()
+
+	// Create new master input session
+	masterIn, err := sf.getMasterSession(mmInDevice, InputSessionName, InputSessionName, false)
+	if err != nil {
+		sf.logger.Warnw("Failed to create new master input session", "error", err)
+		return
+	}
+
+	sf.mu.Lock()
+	sf.masterIn = masterIn
+	sf.mu.Unlock()
+
+	sf.notify(SessionEvent{Type: SessionEventAdded, Session: masterIn, SessionID: masterInputSessionID})
+
+	sf.logger.Debug("Refreshed master input session for new default device")
+}
+
+func (sf *wcaSessionFinder) deviceAddedCallback(pwstrDeviceID string) error {
+	sf.logger.Debugw("Device added", "deviceID", pwstrDeviceID)
+	sf.dispatchWork(func() {
+		sf.handleDeviceAdded(pwstrDeviceID)
+	})
+	return nil
+}
+
+func (sf *wcaSessionFinder) handleDeviceAdded(pwstrDeviceID string) {
+	var device *wca.IMMDevice
+	if err := win.GetDevice(sf.mmDeviceEnumerator, pwstrDeviceID, &device); err != nil {
+		sf.logger.Warnw("Failed to get added device", "deviceID", pwstrDeviceID, "error", err)
+		return
+	}
+
+	if err := sf.createDeviceManager(device); err != nil {
+		sf.logger.Warnw("Failed to create device manager for added device", "deviceID", pwstrDeviceID, "error", err)
+		device.Release()
+	}
+}
+
+func (sf *wcaSessionFinder) deviceRemovedCallback(pwstrDeviceID string) error {
+	sf.logger.Debugw("Device removed", "deviceID", pwstrDeviceID)
+	sf.dispatchWork(func() {
+		sf.removeDeviceManager(pwstrDeviceID)
+	})
+	return nil
+}
+
+func (sf *wcaSessionFinder) deviceStateChangedCallback(pwstrDeviceID string, dwNewState uint32) error {
+	sf.logger.Debugw("Device state changed", "deviceID", pwstrDeviceID, "newState", dwNewState)
+
+	sf.dispatchWork(func() {
+		if dwNewState == wca.DEVICE_STATE_ACTIVE {
+			sf.handleDeviceAdded(pwstrDeviceID)
+		} else {
+			sf.removeDeviceManager(pwstrDeviceID)
+		}
+	})
+
+	return nil
+}

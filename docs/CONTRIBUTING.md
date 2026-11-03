@@ -28,8 +28,12 @@ Despite the above, **deej is still a fully open-source project**. I don't want m
 
 ### Getting started with development
 
-- Have a Go 1.14+ environment
-- Use the build scripts under `pkg/deej/scripts` for your built binaries if you want them to have the notion of versioning
+- Install the Go version declared in `go.mod` and the Wails v3 CLI.
+- GUI builds require Node.js/npm. Run `npm --prefix frontend ci`, then `wails3 task frontend:build` before the first frontend check.
+- Run `wails3 task dev` for Vite HMR and Go rebuilds. Taskfiles live in `build/tasks/`; outputs go to `bin/`.
+- Run `wails3 task test`, `npm --prefix frontend run check`, and `golangci-lint run`.
+- Regenerate bindings with `wails3 task generate:bindings` after API/model changes.
+- Keep core packages independent of Wails. See [architecture](architecture.md), [AGENTS.md](../AGENTS.md), and [build tasks](../scripts/README.md).
 
 ## Issues
 

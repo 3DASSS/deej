@@ -9,7 +9,7 @@
 ; deej binaries to package; CI overrides Amd64Exe and defines Arm64Exe
 ; to produce a universal installer bundling both architectures
 #ifndef Amd64Exe
-  #define Amd64Exe "../../build/deej-release.exe"
+  #define Amd64Exe "../../bin/deej-release.exe"
 #endif
 
 [Setup]
@@ -24,7 +24,7 @@ SolidCompression=yes
 PrivilegesRequired=lowest
 DisableProgramGroupPage=yes
 UninstallDisplayIcon={app}\{#AppExeName}
-SetupIconFile="..\..\pkg\icon\assets\logo.ico"
+SetupIconFile="..\..\internal\icon\assets\logo.ico"
 ; "ArchitecturesAllowed=x64compatible" specifies that Setup cannot run
 ; on anything but x64 and Windows 11 on Arm.
 ArchitecturesAllowed=x64compatible
@@ -36,7 +36,7 @@ ArchitecturesInstallIn64BitMode=x64compatible
 CloseApplications=yes
 WizardStyle=modern
 WizardSizePercent=100
-WizardSmallImageFile="..\..\pkg\icon\assets\logo.bmp"
+WizardSmallImageFile="..\..\internal\icon\assets\logo.bmp"
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"

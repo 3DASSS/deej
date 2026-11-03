@@ -10,7 +10,7 @@
   import Square from "@lucide/svelte/icons/square";
   import Copy from "@lucide/svelte/icons/copy";
   import X from "@lucide/svelte/icons/x";
-  import { SettingsService } from "../../bindings/github.com/nik9play/deej/pkg/deej";
+  import { SettingsService } from "../lib/api";
   import { m } from "../paraglide/messages";
   import { app } from "../lib/state.svelte";
 

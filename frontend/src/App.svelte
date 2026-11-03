@@ -1,11 +1,11 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { AppInfoDTO } from "../bindings/github.com/nik9play/deej/pkg/deej";
+  import { AppInfoDTO } from "./lib/api";
   import { init } from "./lib/state.svelte";
   import Titlebar from "./components/Titlebar.svelte";
-  import Mixer from "./components/Mixer.svelte";
-  import SettingsDialog from "./components/SettingsDialog.svelte";
-  import TargetDialog from "./components/TargetDialog.svelte";
+  import Mixer from "./features/mixer/Mixer.svelte";
+  import SettingsDialog from "./features/settings/SettingsDialog.svelte";
+  import TargetDialog from "./features/mixer/TargetDialog.svelte";
 
   let { appInfo }: { appInfo: AppInfoDTO | null } = $props();
 
