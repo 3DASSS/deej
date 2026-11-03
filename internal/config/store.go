@@ -82,13 +82,20 @@ func (cc *Store) Load() error {
 func (cc *Store) loadLocked() error {
 	cc.logger.Debugw("Loading config", "path", cc.configPath)
 
-	// make sure it exists
+	// Bootstrap a new installation, but never reset a running configuration
+	// when an editor temporarily removes its file during replacement.
 	if info, err := os.Stat(cc.configPath); errors.Is(err, os.ErrNotExist) || (err == nil && info.IsDir()) {
-		cc.logger.Warnw("Config file not found", "path", cc.configPath)
-
-		cc.report(Missing, nil)
-
-		return fmt.Errorf("config file doesn't exist: %s", cc.configPath)
+		if errors.Is(err, os.ErrNotExist) && cc.current.Load() == nil {
+			settings := defaultSettings()
+			settings.normalize()
+			if err := cc.writeSettings(settings); err != nil {
+				return fmt.Errorf("create default config: %w", err)
+			}
+		} else {
+			cc.logger.Warnw("Config file not found", "path", cc.configPath)
+			cc.report(Missing, nil)
+			return fmt.Errorf("config file doesn't exist: %s", cc.configPath)
+		}
 	}
 
 	data, err := os.ReadFile(cc.configPath)
@@ -211,7 +218,19 @@ func (cc *Store) SaveUserSettings(settings Settings) error {
 }
 
 func (cc *Store) saveAndReload(settings Settings) error {
+	if err := cc.writeSettings(settings); err != nil {
+		return err
+	}
 
+	// apply immediately instead of relying on the watcher's debounce timing
+	if err := cc.loadLocked(); err != nil {
+		return fmt.Errorf("load config after save: %w", err)
+	}
+
+	return nil
+}
+
+func (cc *Store) writeSettings(settings Settings) error {
 	var buf bytes.Buffer
 	encoder := yaml.NewEncoder(&buf)
 	encoder.SetIndent(2)
@@ -229,11 +248,6 @@ func (cc *Store) saveAndReload(settings Settings) error {
 	}
 
 	cc.logger.Infow("Saved user settings to config file", "path", cc.configPath)
-
-	// apply immediately instead of relying on the watcher's debounce timing
-	if err := cc.loadLocked(); err != nil {
-		return fmt.Errorf("load config after save: %w", err)
-	}
 
 	return nil
 }

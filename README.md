@@ -2,6 +2,11 @@
 
 This is a fork of the [original project](https://github.com/omriharel/deej).
 
+On first launch, deej creates `config.yaml` beside the executable if it is
+missing. It contains the default connection settings and an empty `default`
+profile; assign slider targets in the settings window or edit the file.
+Use `--config <path>` to choose a different configuration file.
+
 ## Features
 
 This fork includes the following new features:
